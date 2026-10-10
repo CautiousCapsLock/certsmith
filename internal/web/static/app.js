@@ -543,7 +543,6 @@ function renderOverview() {
           certs.every(c => collapsedCerts.has(c.id)) ? 'Expand all' : 'Collapse all') : null,
         h('button', { id: 'probe-btn', class: 'btn', title: 'Connects to every target now and checks the certificate it is serving: the right one, still valid, chain complete. Changes nothing.',
           onclick: () => act('POST', '/api/probe', 'Checking endpoints…') }, 'Check endpoints'),
-        h('button', { class: 'btn', title: 'Add a certificate that somebody else issued, from a PKCS#12 or PEM file', onclick: () => importForm(null) }, 'Import certificate'),
         h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate'))),
     // spread: the native append() would print the text "null" for an absent banner
     ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email))
@@ -645,6 +644,7 @@ function renderTargets() {
 function renderDNS() {
   const ps = S.dns_providers || [];
   const le = ps.filter(p => !isEAB(p)), eab = ps.filter(isEAB);
+  const imported = (S.certificates || []).filter(c => c.source === 'import');
   const usedBy = p => (S.certificates || []).filter(c => c.dns_id === p.id).map(c => c.name).join(', ') || '-';
   const table = (head, rows) => h('table', { class: 'list' },
     h('thead', {}, h('tr', {}, [...head, ''].map(x => h('th', {}, x)))), h('tbody', {}, rows));
@@ -655,14 +655,21 @@ function renderDNS() {
   return h('div', {},
     h('div', { class: 'row between', style: 'margin-bottom:14px' },
       h('div', {}, h('h1', {}, 'Certificate providers'), h('p', { class: 'sub', style: 'margin:0' },
-        'A provider defines the certificate authority that issues certificates and the DNS credentials used to validate domain ownership. Each certificate is assigned one provider.')),
+        'A provider defines the certificate authority that issues certificates and the DNS credentials used to validate domain ownership. Each certificate is assigned one provider. Certificates issued elsewhere are imported here too.')),
       h('button', { class: 'btn primary', onclick: () => providerForm(null) }, 'Add provider')),
     section("Let's Encrypt", 'Certificates from Let\'s Encrypt, using the directory selected under Settings. Each provider holds the DNS credentials used for domain validation.',
       le.length ? table(['Name', 'DNS provider', 'Used by'], le.map(p => h('tr', {}, h('td', {}, p.name), h('td', {}, dnsLabel(p)), h('td', {}, usedBy(p)), edit(p))))
         : none("No Let's Encrypt providers configured.")),
     section('EAB providers', 'Certificate authorities that use External Account Binding (EAB), such as ZeroSSL, Sectigo and Google Trust Services. Each provider holds the CA directory, its EAB key and, where required, DNS credentials.',
       eab.length ? table(['Name', 'Certificate authority', 'DNS provider', 'Used by'], eab.map(p => h('tr', {}, h('td', {}, p.name), h('td', {}, caLabel(p)), h('td', {}, dnsLabel(p)), h('td', {}, usedBy(p)), edit(p))))
-        : none('No EAB providers configured. Select Add provider, then Another CA (External Account Binding), to add one.')));
+        : none('No EAB providers configured. Select Add provider, then Another CA (External Account Binding), to add one.')),
+    section('Imported certificates', 'Certificates that were issued outside CertSmith and uploaded as files. CertSmith deploys and monitors them but cannot renew them: upload the new certificate with Replace when it arrives.',
+      imported.length ? table(['Name', 'Issued by', 'Names', 'Expires'], imported.map(c => h('tr', {},
+          h('td', {}, c.name), h('td', {}, c.issuer || 'unknown'), h('td', {}, (c.domains || []).join(', ')), h('td', {}, fmt(c.not_after)),
+          h('td', {}, h('button', { class: 'btn small', title: 'Upload the new certificate; targets that were deployed to receive it', onclick: () => importForm(c) }, 'Replace'), ' ',
+            h('button', { class: 'btn small ghost', onclick: () => importedEditForm(c) }, 'Edit'))
+        )))
+        : none('No imported certificates. Select Add provider, then Import an existing certificate, to upload one.')));
 }
 
 // What each administrative action is called in the audit log.
@@ -959,14 +966,10 @@ function sortedDNS() {
   return [...schema.dns].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
 }
 
-// Upload a certificate that somebody else issued (a PKCS#12 file, or PEM files). It is then deployed,
-// watched and alerted on like any other, but cannot be renewed here: a new one is uploaded with Replace.
-// With c, the certificate of an imported entry is replaced.
-function importForm(c) {
-  const replacing = !!c;
-  const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, replacing ? c.name : '');
-  name.input.disabled = replacing;
-  name.input.placeholder = 'A name you will recognise, for example Corporate wildcard';
+// The fields for uploading a certificate that somebody else issued (a PKCS#12 file, or PEM files).
+// Shared by the Add provider dialog, where a new certificate is imported, and by Replace. It returns
+// the node, payload() (the files, read) and check() (what the files contain, shown in the panel).
+function importPanel(replacing) {
   const fmtSel = h('select', {}, h('option', { value: 'p12' }, 'PKCS#12 file (.p12 or .pfx)'),
     h('option', { value: 'pem' }, 'PEM files (certificate and private key)'));
   const file = accept => h('input', { type: 'file', accept });
@@ -1006,7 +1009,8 @@ function importForm(c) {
     const rows = [
       ['Names', (s.names || []).join(', ')], ['Issued by', s.issuer || 'unknown'], ['Valid until', fmt(s.not_after)],
       ['Key', s.key_type],
-      ['CA chain', s.chain_length ? s.chain_length + ' CA certificate' + (s.chain_length === 1 ? '' : 's') + ' will be sent with it' : 'none supplied'],
+      ['CA chain', s.chain_length ? s.chain_length + ' CA certificate' + (s.chain_length === 1 ? '' : 's') + ' will be sent with it'
+        : s.root_supplied ? 'none to send: issued directly by the root CA' : 'none supplied'],
       ['Serial', String(s.serial || '').slice(0, 20) + '…'],
     ];
     result.replaceChildren(
@@ -1018,20 +1022,26 @@ function importForm(c) {
   const intro = replacing
     ? 'Upload the new certificate for this entry. Targets that were deployed to receive it automatically, as they would a renewal.'
     : 'Use this for a certificate that was issued outside CertSmith: by a company CA, bought from a CA, or supplied with a product. CertSmith deploys it to your targets and warns before it expires, but cannot renew it: upload the new one with Replace when it arrives.';
-  modal(replacing ? 'Replace certificate' : 'Import certificate',
-    h('div', {}, h('p', { class: 'meta', style: 'margin:0 0 12px' }, intro), name.wrap, row('Format', fmtSel), p12Panel, pemPanel, result),
+  return {
+    node: h('div', {}, h('p', { class: 'meta', style: 'margin:0 0 12px' }, intro), row('Format', fmtSel), p12Panel, pemPanel, result),
+    payload,
+    check: async () => { show((await api('POST', '/api/certs/import/check', await payload())).summary); },
+  };
+}
+
+// Replace the certificate of an imported entry with a newly uploaded one.
+function importForm(c) {
+  const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, c.name);
+  name.input.disabled = true;
+  const panel = importPanel(true);
+  modal('Replace certificate', h('div', {}, name.wrap, panel.node),
     close => [h('div', { class: 'grow' }),
       h('button', { class: 'btn', onclick: close }, 'Cancel'),
-      h('button', { class: 'btn', title: 'Reads the files and shows what they contain, without importing', onclick: e => submit(e.target, async () => {
-        const r = await api('POST', '/api/certs/import/check', await payload());
-        show(r.summary);
-      }) }, 'Check files'),
+      h('button', { class: 'btn', title: 'Reads the files and shows what they contain, without replacing', onclick: e => submit(e.target, panel.check) }, 'Check files'),
       h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
-        if (!replacing && !name.get().trim()) throw new Error('Give the certificate a name');
-        const body = Object.assign({ name: name.get().trim() }, await payload());
-        await api('POST', replacing ? '/api/certs/' + c.id + '/import' : '/api/certs/import', body);
-        close(); toast(replacing ? 'Certificate replaced' : 'Certificate imported');
-      }) }, replacing ? 'Replace certificate' : 'Import certificate')]);
+        await api('POST', '/api/certs/' + c.id + '/import', Object.assign({ name: c.name }, await panel.payload()));
+        close(); toast('Certificate replaced');
+      }) }, 'Replace certificate')]);
 }
 
 // An imported certificate's names, key and dates come from its file, so only its label and whether it
@@ -1206,10 +1216,9 @@ function providerForm(p, authority) {
   const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, p.name);
   const authSel = h('select', { disabled: !isNew, title: isNew ? '' : 'The CA of an existing provider cannot be changed: add a new provider instead' },
     h('option', { value: 'letsencrypt' }, "Let's Encrypt"), h('option', { value: 'eab' }, 'Another CA (External Account Binding)'),
-    // not a provider: a certificate somebody else issued is uploaded instead, so this opens the import dialog
+    // not a provider: a certificate somebody else issued is uploaded instead (the DNS fields give way to the upload fields)
     isNew ? h('option', { value: 'import' }, 'Import an existing certificate (upload files)') : null);
   authSel.value = isEAB(p) ? 'eab' : 'letsencrypt';
-  authSel.addEventListener('change', () => { if (authSel.value === 'import') { closeDialog(); importForm(null); } });
   const authField = h('div', { class: 'field' }, h('label', {}, 'Certificate authority'), authSel);
 
   // ---- the CA, when it is not Let's Encrypt
@@ -1258,16 +1267,25 @@ function providerForm(p, authority) {
     h('div', { class: 'sect' }, 'DNS credentials'),
     h('p', { class: 'meta', style: 'margin:0 0 12px' }, 'Used to publish the temporary TXT record that proves you own the names (DNS-01).'), pf.node);
   // The name is the person's own: nothing is filled in for them. A hint shows what a good one looks like.
-  name.input.placeholder = 'A name you will recognise, for example Cloudflare (example.com)';
+  const imp = isNew ? importPanel(false) : null;
   const paint = () => {
+    const importing = authSel.value === 'import';
     const eab = authSel.value === 'eab';
     eabPanel.style.display = eab ? '' : 'none';
-    lePanel.style.display = eab ? 'none' : '';
+    lePanel.style.display = eab || importing ? 'none' : '';
     const canSkip = eab && !!(presets.find(c => c.id === caSel.value) || {}).prevalidated;
     noDnsField.style.display = canSkip ? '' : 'none';
     if (!canSkip) noDnsChk.checked = false;
-    dnsBlock.style.display = canSkip && noDnsChk.checked ? 'none' : '';
-    testBlock.style.display = canSkip && noDnsChk.checked ? 'none' : '';
+    const noDns = importing || (canSkip && noDnsChk.checked);
+    dnsBlock.style.display = noDns ? 'none' : '';
+    testBlock.style.display = noDns ? 'none' : '';
+    if (imp) imp.node.style.display = importing ? '' : 'none';
+    name.input.placeholder = importing ? 'A name you will recognise, for example Corporate wildcard'
+      : 'A name you will recognise, for example Cloudflare (example.com)';
+    checkBtn.style.display = importing ? '' : 'none';
+    saveBtn.textContent = importing ? 'Import certificate' : 'Save';
+    const m = body.closest('.modal');
+    if (m) m.querySelector('h2').textContent = importing ? 'Import certificate' : isNew ? 'Add certificate provider' : 'Edit certificate provider';
   };
   authSel.addEventListener('change', paint);
   caSel.addEventListener('change', paint);
@@ -1279,22 +1297,34 @@ function providerForm(p, authority) {
     return { id: isNew ? undefined : p.id, kind: cur.kind, config: cur.config, domain: testDomain.get() };
   });
   const testBlock = h('div', {}, h('div', { class: 'sect' }, 'Test'), testDomain.wrap, dnsTest.node);
-  const body = h('div', {}, name.wrap, authField, eabPanel, lePanel, noDnsField, dnsBlock, testBlock);
-  paint(); // after every block exists
-  modal(isNew ? 'Add certificate provider' : 'Edit certificate provider', body, close => [
-    !isNew ? h('button', { class: 'btn danger', onclick: async e => {
-      if (!confirm(`Delete provider "${p.name}"?`)) return;
-      await submit(e.target, async () => { await api('DELETE', '/api/dns/' + p.id); close(); toast('Deleted'); });
-    } }, 'Delete') : null,
-    h('div', { class: 'grow' }),
-    h('button', { class: 'btn', onclick: close }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
-      if (!name.get().trim()) throw new Error('Enter a name for this provider');
-      const extra = authSel.value === 'eab' ? eabFields() : { authority: 'letsencrypt' };
-      const noDns = authSel.value === 'eab' && noDnsChk.checked && noDnsField.style.display !== 'none';
-      await api(isNew ? 'POST' : 'PUT', isNew ? '/api/dns' : '/api/dns/' + p.id, Object.assign({ name: name.get() }, noDns ? { kind: '', config: {} } : pf.read(), extra));
-      close(); toast('Saved');
-    }) }, 'Save')]);
+  const body = h('div', {}, name.wrap, authField, eabPanel, lePanel, imp ? imp.node : null, noDnsField, dnsBlock, testBlock);
+  const checkBtn = h('button', { class: 'btn', title: 'Reads the files and shows what they contain, without importing',
+    onclick: e => submit(e.target, () => imp.check()) }, 'Check files');
+  let closeDialog = () => {}; // set once the dialog exists
+  const saveBtn = h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+    if (!name.get().trim()) throw new Error(authSel.value === 'import' ? 'Give the certificate a name' : 'Enter a name for this provider');
+    if (authSel.value === 'import') {
+      await api('POST', '/api/certs/import', Object.assign({ name: name.get().trim() }, await imp.payload()));
+      closeDialog(); toast('Certificate imported');
+      return;
+    }
+    const extra = authSel.value === 'eab' ? eabFields() : { authority: 'letsencrypt' };
+    const noDns = authSel.value === 'eab' && noDnsChk.checked && noDnsField.style.display !== 'none';
+    await api(isNew ? 'POST' : 'PUT', isNew ? '/api/dns' : '/api/dns/' + p.id, Object.assign({ name: name.get() }, noDns ? { kind: '', config: {} } : pf.read(), extra));
+    closeDialog(); toast('Saved');
+  }) }, 'Save');
+  modal(isNew ? 'Add certificate provider' : 'Edit certificate provider', body, close => {
+    closeDialog = close;
+    return [
+      !isNew ? h('button', { class: 'btn danger', onclick: async e => {
+        if (!confirm(`Delete provider "${p.name}"?`)) return;
+        await submit(e.target, async () => { await api('DELETE', '/api/dns/' + p.id); close(); toast('Deleted'); });
+      } }, 'Delete') : null,
+      h('div', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: close }, 'Cancel'),
+      checkBtn, saveBtn];
+  });
+  paint(); // the dialog exists now: heading and buttons follow the choice
 }
 
 // Asks whether to trust the certificate a device presented. Resolves true when confirmed.

@@ -108,6 +108,8 @@ func Parse(in Input, now time.Time) (*Result, error) {
 	switch {
 	case selfSigned:
 		warnings = append(warnings, "This is a self-signed certificate: clients must be told to trust it explicitly.")
+	case len(chain) == 0 && rootSupplied:
+		warnings = append(warnings, "This certificate was issued directly by the root CA supplied with it. The root is not sent: clients must have that root CA installed as trusted.")
 	case len(chain) == 0:
 		warnings = append(warnings, "No CA certificate that issued this one was supplied, so devices will send the certificate alone and clients that do not already have its issuing CA will report it as untrusted. Supply the chain to avoid that.")
 	}

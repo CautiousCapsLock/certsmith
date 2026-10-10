@@ -78,4 +78,11 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 	if !regexp.MustCompile(`value: 'import' \}, 'Import an existing certificate`).MatchString(get("/app.js")) {
 		t.Error("the Add provider dialog must offer Import an existing certificate beside Let's Encrypt and EAB")
 	}
+	// importing lives on the providers page only: no import button on the Certificates page
+	if regexp.MustCompile(`onclick: \(\) => importForm\(null\)`).MatchString(get("/app.js")) || strings.Contains(get("/app.js"), "'Import certificate' }, 'Import certificate'") {
+		t.Error("the Certificates page must not have its own Import certificate button")
+	}
+	if !regexp.MustCompile(`section\('Imported certificates'`).MatchString(get("/app.js")) {
+		t.Error("the providers page must list imported certificates in their own section")
+	}
 }

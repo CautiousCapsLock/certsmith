@@ -308,3 +308,19 @@ func TestOversizedInputIsRefused(t *testing.T) {
 		t.Error("nothing supplied must be an error")
 	}
 }
+
+// A certificate issued straight from a root: the root is on the path, so "no CA was supplied" would be wrong.
+func TestIssuedDirectlyByASuppliedRootIsExplainedNotCalledMissing(t *testing.T) {
+	root := sign(t, spec{cn: "Test Root CA", isCA: true, notAfter: time.Now().AddDate(10, 0, 0)}, nil)
+	leaf := sign(t, spec{cn: "app.example.com", dns: []string{"app.example.com"}, keyKind: "ec"}, &root)
+	r, err := Parse(Input{CertPEM: certPEM(leaf.cert, root.cert), KeyPEM: keyPEM(t, leaf.key, "sec1")}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Summary.ChainLength != 0 || !r.Summary.RootSupplied {
+		t.Fatalf("summary: %+v", r.Summary)
+	}
+	if len(r.Summary.Warnings) != 1 || !strings.Contains(r.Summary.Warnings[0], "issued directly by the root CA supplied") {
+		t.Errorf("warnings = %v", r.Summary.Warnings)
+	}
+}
