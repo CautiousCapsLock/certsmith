@@ -337,7 +337,7 @@ ssh_ports() {
   } | grep -E '^[0-9]+$' | sort -u
 }
 
-FW_NOTE=""
+FW_NOTE=""; FW_APPLIED=0
 setup_firewall() {
   if ! have ufw && have apt-get; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw >/dev/null 2>&1 || true
@@ -400,6 +400,7 @@ setup_firewall() {
     ufw --force enable >/dev/null 2>&1 || warn "could not enable ufw"
   fi
   mv -f "$FW_RECORD.new" "$FW_RECORD"
+  FW_APPLIED=1
 }
 
 setup_auto_updates() {
@@ -462,14 +463,36 @@ SUFFIX=":$PORT"; [ "$PORT" != 443 ] || [ "$SCHEME" != https ] || SUFFIX=""
 ADDRS=$(hostname -I 2>/dev/null || true)
 [ -n "$ADDRS" ] || ADDRS=$(ip -4 -o addr show scope global 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4 }' | tr '\n' ' ')
 
+# Only list addresses the firewall rules admit. With --allow-from the rules are per network, so an
+# address family that none of the listed networks belongs to cannot reach the page and is left out.
+HAS_V4=1; HAS_V6=1
+if [ -n "$ALLOW" ] && [ "$FW_APPLIED" -eq 1 ]; then
+  HAS_V4=0; HAS_V6=0
+  for _n in $(printf '%s' "$ALLOW" | tr ',' ' '); do
+    case "$_n" in
+      any)  HAS_V4=1; HAS_V6=1 ;;
+      *:*)  HAS_V6=1 ;;
+      *)    HAS_V4=1 ;;
+    esac
+  done
+fi
+REACH=""
+for _a in $ADDRS; do
+  case "$_a" in
+    *:*) [ "$HAS_V6" -eq 1 ] || continue ;;
+    *)   [ "$HAS_V4" -eq 1 ] || continue ;;
+  esac
+  REACH="$REACH $_a"
+done
+
 say ""
 if [ "$FRESH" -eq 1 ]; then say "CertSmith ${VERSION:+($VERSION) }is installed."; else say "CertSmith ${VERSION:+($VERSION) }is upgraded."; fi
-for _a in $ADDRS; do
+for _a in $REACH; do
   case "$_a" in *:*) _u="[$_a]" ;; *) _u="$_a" ;; esac
   say "  Open  $SCHEME://$_u$SUFFIX/"
 done
 [ -z "$REDIRECT_PORT" ] || say "  Port $REDIRECT_PORT redirects to the HTTPS page."
-[ -n "$ADDRS" ] || say "  Open  $SCHEME://<this host>$SUFFIX/"
+[ -n "$REACH" ] || say "  Open  $SCHEME://<this host>$SUFFIX/"
 
 CERT="$ROOT$DATA_DIR/ui-tls/fullchain.pem"
 if [ "$SCHEME" = https ] && have openssl; then
@@ -487,7 +510,7 @@ fi
 
 # a public address means the login page is reachable from the Internet unless filtered
 _public=""
-for _a in $ADDRS; do
+for _a in $REACH; do
   case "$_a" in
     # IPv6: global unicast is 2000::/3 (first digit 2 or 3). fe80:: (link-local), fc00::/7
     # (private) and ::1 (loopback) are not reachable from the Internet.

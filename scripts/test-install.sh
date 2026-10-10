@@ -225,6 +225,29 @@ suite() {
   STUB_ADDRS="fd12:3456:789a::1 fe80::1 ::1" STUB_LISTEN=443 run
   case "$OUT" in *"public address"*) fail "no warning for private and link-local IPv6" "$OUT" ;; *) pass "no warning for private and link-local IPv6" ;; esac
 
+  # the result lists only addresses the firewall rules admit
+  newcase reach4
+  STUB_ADDRS="192.0.2.10 2a0e:1d47:cc85:c400::1" STUB_LISTEN=443 run --allow-from 203.0.113.0/24
+  case "$OUT" in *"https://192.0.2.10/"*) pass "allowed IPv4 network: the IPv4 address is listed" ;; *) fail "IPv4 listed" "$OUT" ;; esac
+  case "$OUT" in *"[2a0e"*) fail "allowed IPv4 network: the IPv6 address is not listed" "$OUT" ;; *) pass "allowed IPv4 network: the IPv6 address is not listed" ;; esac
+
+  newcase reach6
+  STUB_ADDRS="192.0.2.10 2a0e:1d47:cc85:c400::1" STUB_LISTEN=443 run --allow-from 2a0e:1d47::/32
+  case "$OUT" in *"https://[2a0e:1d47:cc85:c400::1]/"*) pass "allowed IPv6 network: the IPv6 address is listed" ;; *) fail "IPv6 listed" "$OUT" ;; esac
+  case "$OUT" in *"192.0.2.10"*) fail "allowed IPv6 network: the IPv4 address is not listed" "$OUT" ;; *) pass "allowed IPv6 network: the IPv4 address is not listed" ;; esac
+
+  newcase reachboth
+  STUB_ADDRS="192.0.2.10 2a0e:1d47:cc85:c400::1" STUB_LISTEN=443 run --allow-from 203.0.113.0/24,2a0e:1d47::/32
+  case "$OUT" in *"192.0.2.10"*"[2a0e"*) pass "both families allowed: both are listed" ;; *) fail "both listed" "$OUT" ;; esac
+
+  newcase reachany
+  STUB_ADDRS="192.0.2.10 2a0e:1d47:cc85:c400::1" STUB_LISTEN=443 run
+  case "$OUT" in *"192.0.2.10"*"[2a0e"*) pass "no network list: every address is listed" ;; *) fail "all listed" "$OUT" ;; esac
+
+  newcase reachnofw
+  STUB_ADDRS="192.0.2.10 2a0e:1d47:cc85:c400::1" STUB_LISTEN=443 run --allow-from 203.0.113.0/24 --no-firewall
+  case "$OUT" in *"192.0.2.10"*"[2a0e"*) pass "firewall untouched: every address is listed" ;; *) fail "firewall untouched: all listed" "$OUT" ;; esac
+
   newcase badallow
   run --allow-from "1.2.3.4;reboot"
   [ "$RC" -ne 0 ] && ! logged "systemctl" && pass "rejects a hostile --allow-from before doing anything" || fail "rejects a hostile --allow-from before doing anything"
