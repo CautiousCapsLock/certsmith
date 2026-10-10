@@ -57,8 +57,7 @@ later). A provider supplies one method, `Persist(ctx, fqdn, value)`, plus a time
 authoritative and recursive nameservers, and offers `WithIssuerDomainName`, `WithPersistUntil` and propagation
 options. The provider interface is documented by lego as **experimental and may change without notice.**
 
-CertSmith uses lego v4, which has no `dns-persist-01`. See [DEPENDENCIES.md](DEPENDENCIES.md#lego-v5): the migration
-is a prerequisite, and was assessed at about one file's worth of changes.
+CertSmith now uses lego v5, so the library prerequisite is met (see [DEPENDENCIES.md](DEPENDENCIES.md#lego-v5)).
 
 ## 3. Recommendation
 
@@ -66,7 +65,7 @@ is a prerequisite, and was assessed at about one file's worth of changes.
 still change under us, and the library interface is experimental. Building the full feature now would risk a
 rewrite. What is worth doing now costs little and is useful regardless:
 
-1. **Migrate to lego v5** (about 1 to 2 days). It is the prerequisite, and it carries independent benefits.
+1. ~~**Migrate to lego v5.**~~ Done; the live checks listed in DEPENDENCIES.md remain.
 2. **Run a spike against Google Trust Services** with a throwaway domain, to confirm the real behaviour (about 1 day).
    CertSmith already supports Google Trust Services through External Account Binding.
 3. **Decide on the feature when two things are true:** a second CA supports it in production (Let's Encrypt being
@@ -122,7 +121,7 @@ HTTP-01 and TLS-ALPN-01, and the manual DNS provider flow, are not part of this 
 | Phase | Work | Exit criteria | Effort |
 |---|---|---|---|
 | 0 | Watch: Let's Encrypt production status, the draft, lego releases | A decision gate is met (section 3) | none |
-| 1 | lego v4 to v5 ([DEPENDENCIES.md](DEPENDENCIES.md#lego-v5)) | All existing tests and live DNS-01 issuance (Let's Encrypt staging, ZeroSSL) pass on v5 | 1 to 2 days |
+| 1 | lego v4 to v5 ([DEPENDENCIES.md](DEPENDENCIES.md#lego-v5)) | **Done.** Tests pass; live DNS-01 issuance (Let's Encrypt staging, ZeroSSL) still to confirm | done |
 | 2 | Spike: issue from Google Trust Services with `dns-persist-01` | A certificate issued with no DNS write at issuance; findings written down | 1 day |
 | 3 | Model, engine and provider dialog; record display, publish and verify | Issue and renew with no DNS credentials; mock-CA tests; one live test | 2 to 3 days |
 | 4 | Monitoring, the two alerts, documentation, notices | Alerts tested; README and Readme updated | 1 to 2 days |

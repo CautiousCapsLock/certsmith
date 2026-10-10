@@ -7,17 +7,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v5/challenge"
 
 	"github.com/CautiousCapsLock/certsmith/internal/plugin"
 )
 
 type refusingProvider struct{ cleaned bool }
 
-func (p *refusingProvider) Present(domain, token, keyAuth string) error {
+func (p *refusingProvider) Present(_ context.Context, domain, token, keyAuth string) error {
 	return errors.New("cloudflare: failed to create TXT record: HTTP 403 Forbidden")
 }
-func (p *refusingProvider) CleanUp(domain, token, keyAuth string) error { p.cleaned = true; return nil }
+func (p *refusingProvider) CleanUp(_ context.Context, domain, token, keyAuth string) error {
+	p.cleaned = true
+	return nil
+}
 
 type refusingDNS struct{ p *refusingProvider }
 

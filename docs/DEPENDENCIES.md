@@ -7,11 +7,11 @@ Written 10 October 2026, against CertSmith 0.12.x and Go 1.27.
 
 | | Count | Notes |
 |---|---|---|
-| Direct modules | 4 | `go-acme/lego/v4` (ACME client and 20+ DNS provider clients), `miekg/dns`, `golang.org/x/crypto`, `software.sslmate.com/src/go-pkcs12` |
-| Indirect modules | about 680 | Almost all are cloud and DNS vendor SDKs that lego's providers need. Only about 200 are compiled into the binary. |
+| Direct modules | 4 | `go-acme/lego/v5` (ACME client and DNS provider clients), `miekg/dns`, `golang.org/x/crypto`, `software.sslmate.com/src/go-pkcs12` |
+| Indirect modules | about 700 | Almost all are cloud and DNS vendor SDKs that lego's providers need. Only about 200 are compiled into the binary. |
 | Go toolchain | 1 | The `go` line in `go.mod`; the release workflow builds with the same version. |
 | GitHub Actions | 2 | `actions/checkout`, `actions/setup-go`, pinned by commit SHA. |
-| Bundled software | 205 components | Listed with their licences in `internal/web/static/THIRD_PARTY_NOTICES.txt`. |
+| Bundled software | 193 components | Listed with their licences in `internal/web/static/THIRD_PARTY_NOTICES.txt`. |
 
 ## Principles
 
@@ -68,39 +68,31 @@ generator; check the branch out, run `go run ./scripts/notices`, and push the re
 
 ## lego v5
 
-lego published v5.0.0 on 11 May 2026 (current release 5.5.2). CertSmith is on v4.35.2, the last v4 release.
+CertSmith moved from lego v4.35.2 to **v5.5.2** (v5.0.0 was published on 11 May 2026). The change is isolated to
+`internal/acme` (the issuer and the log writer) and the DNS provider interface, which now takes a context.
 
-**Why move.** v5 adds the `dns-persist-01` challenge (see [DNS-PERSIST.md](DNS-PERSIST.md)), context support
-throughout, structured logging, ACME error codes, account key rollover, and new DNS providers. v4 is expected to
-receive no further provider additions.
+**Why.** v5 adds the `dns-persist-01` challenge (see [DNS-PERSIST.md](DNS-PERSIST.md)), context support throughout,
+structured logging, account key rollover, and new DNS providers. v4 receives no further provider additions.
 
-**What changes for CertSmith.** A trial build in a throwaway copy produced 19 compile errors, all in
-`internal/acme/issuer.go`, in about 14 distinct places:
+**What changed, and what CertSmith does about it.**
 
-| Change in v5 | Affects |
+| Change in v5 | Handling |
 |---|---|
-| `registration.Resource` is gone | account handling, 4 places |
-| `Register`, `RegisterWithExternalAccountBinding`, `Obtain` take a context | issuance and registration |
-| `legolog.Logger` is replaced by `log/slog` | the issuance log writer |
-| `lego.LEDirectoryProduction` and `LEDirectoryStaging` are gone | directory selection |
-| `dns01.FindZoneByFqdn`, `ParseNameservers`, `AddRecursiveNameservers` moved | the propagation wrapper |
-| `dns01.WrapPreCheck` signature | the DNS interception handling |
-| `CertificateConfig.KeyType` moved | key type selection |
-| `legoUser` must satisfy a changed `registration.User` | the ACME account |
+| Account object is `acme.ExtendedAccount`, not `registration.Resource` | `registration.json` is still written in the old `{"body", "uri"}` shape, so existing accounts are found and a rollback still works (tested) |
+| Private keys are returned as PKCS#8 | Converted back to PKCS#1 (RSA) and SEC 1 (ECDSA), the forms the device plug-ins and every stored key use (tested) |
+| Certificates have no common name unless asked | `EnableCommonName` is set, as v4 behaved (tested) |
+| Logging is `log/slog` | A small handler keeps the plain `date [LEVEL] message` lines of the issuance log (tested) |
+| `Register`, `Obtain`, challenge providers and propagation checks take a context | Adopted throughout |
+| Resolver list is set on a default DNS client, not as a challenge option | Set per issuance, under the issuance lock |
+| `rfc2136` provider renamed `dnsupdate` | No action: the old code name and `RFC2136_*` variables are still accepted (checked in lego's source) |
+| Providers removed: `azure`, `brandit`, `cloudxns`, `dnspod`, `googledomains`, `iij`, `iwantmyname` | None is offered in CertSmith's forms; a provider entered under "Other" with one of these codes will stop working |
 
-The DNS provider packages (`internal/dns`) and the engine compiled unchanged, but behaviour must be verified: the
-provider factory and its environment variable names are part of "new approach of the DNS calls".
+**Verified.** The mock-CA tests (EAB signing, the full order flow, accounts reused across a restart), the DNS tests,
+the race-enabled suite, and the 22 curated providers' environment variable names against v5's source.
 
-**Plan.**
-
-1. Branch. Replace the import path, then fix `internal/acme/issuer.go` and its tests until the build is clean.
-2. Run the existing mock-CA tests (they verify EAB signing and the full order flow) and the DNS tests.
-3. For every provider in the curated list, compare the field names CertSmith sends with what v5 reads.
-4. Live tests: Let's Encrypt staging with a real DNS provider, ZeroSSL with EAB, and a wildcard.
-5. Update the notices, this document, and the README; merge to the default branch only when all of the above pass.
-
-Estimate: one to two days including live tests. The migration has value on its own, and it is the prerequisite for
-DNS-PERSIST-01.
+**Not verified by tests; check on a live system after deployment.** Issuance from Let's Encrypt staging with a real
+DNS provider; ZeroSSL with EAB; a wildcard; renewal of a certificate that was issued by v4; and a deployment to each
+device type of a certificate issued by v5.
 
 ## Go toolchain
 

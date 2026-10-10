@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v5/challenge"
 )
 
 // Choice is one tick box in a "checks" field.

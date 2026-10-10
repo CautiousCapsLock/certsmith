@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v5/challenge"
 
 	"github.com/CautiousCapsLock/certsmith/internal/acme"
 	"github.com/CautiousCapsLock/certsmith/internal/model"

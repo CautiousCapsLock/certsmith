@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	stdlog "log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -27,13 +27,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-acme/lego/v4/certcrypto"
-	"github.com/go-acme/lego/v4/certificate"
-	"github.com/go-acme/lego/v4/challenge"
-	"github.com/go-acme/lego/v4/challenge/dns01"
-	"github.com/go-acme/lego/v4/lego"
-	legolog "github.com/go-acme/lego/v4/log"
-	"github.com/go-acme/lego/v4/registration"
+	"github.com/go-acme/lego/v5/acme"
+	"github.com/go-acme/lego/v5/certcrypto"
+	"github.com/go-acme/lego/v5/certificate"
+	"github.com/go-acme/lego/v5/challenge"
+	"github.com/go-acme/lego/v5/challenge/dns01"
+	"github.com/go-acme/lego/v5/lego"
+	legolog "github.com/go-acme/lego/v5/log"
+	"github.com/go-acme/lego/v5/registration"
 
 	"github.com/CautiousCapsLock/certsmith/internal/model"
 	"github.com/CautiousCapsLock/certsmith/internal/plugin"
@@ -65,12 +66,12 @@ type Request struct {
 // ask, it fails the issuance with an explanation instead of leaving the CA waiting for a record.
 type NoChallenge struct{}
 
-func (NoChallenge) Present(domain, token, keyAuth string) error {
+func (NoChallenge) Present(_ context.Context, domain, token, keyAuth string) error {
 	return fmt.Errorf("the CA asked for a DNS challenge for %s, but this provider has no DNS credentials: "+
 		"validate the name in your CA account first, or add DNS credentials to the provider", domain)
 }
 
-func (NoChallenge) CleanUp(domain, token, keyAuth string) error { return nil }
+func (NoChallenge) CleanUp(_ context.Context, domain, token, keyAuth string) error { return nil }
 
 // EAB is the External Account Binding a CA issued: the key identifier and the MAC key (base64url).
 type EAB struct{ Kid, HMAC string }
@@ -98,9 +99,9 @@ func (i *Issuer) Issue(ctx context.Context, r Request) (*plugin.Bundle, error) {
 	issueMu.Lock()
 	defer issueMu.Unlock()
 	if r.Log != nil {
-		prev := legolog.Logger
-		legolog.Logger = stdlog.New(io.MultiWriter(os.Stderr, r.Log), "", stdlog.LstdFlags)
-		defer func() { legolog.Logger = prev }()
+		prev := legolog.Default()
+		legolog.SetDefault(slog.New(newLineHandler(io.MultiWriter(os.Stderr, r.Log))))
+		defer legolog.SetDefault(prev)
 	}
 	if len(r.Domains) == 0 {
 		return nil, errors.New("no domains")
@@ -117,9 +118,9 @@ func (i *Issuer) Issue(ctx context.Context, r Request) (*plugin.Bundle, error) {
 func directoryURL(s string) string {
 	switch s {
 	case model.DirProduction, "":
-		return lego.LEDirectoryProduction
+		return lego.DirectoryURLLetsEncrypt
 	case model.DirStaging:
-		return lego.LEDirectoryStaging
+		return lego.DirectoryURLLetsEncryptStaging
 	}
 	return s
 }
@@ -173,7 +174,7 @@ type waiter struct {
 	last    time.Time
 }
 
-func (w *waiter) run(domain, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
+func (w *waiter) run(ctx context.Context, domain, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
 	if w.ctx.Err() != nil {
 		return true, errCancelled
 	}
@@ -190,7 +191,7 @@ func (w *waiter) run(domain, fqdn, value string, check dns01.PreCheckFunc) (bool
 		w.last = time.Now()
 		observe(w.ctx, w.log, fqdn, value)
 	}
-	return check(fqdn, value)
+	return check(ctx, fqdn, value)
 }
 
 func waitHook(ctx context.Context, logw io.Writer, settle time.Duration) dns01.ChallengeOption {
@@ -224,7 +225,7 @@ var (
 )
 
 func observe(ctx context.Context, w io.Writer, fqdn, value string) {
-	zone, err := dns01.FindZoneByFqdn(fqdn)
+	zone, err := dns01.DefaultClient().FindZoneByFqdn(ctx, fqdn)
 	if err != nil {
 		return
 	}
@@ -278,13 +279,33 @@ func txtAt(ctx context.Context, server, fqdn string) ([]string, error) {
 
 type legoUser struct {
 	email string
-	reg   *registration.Resource
-	key   crypto.PrivateKey
+	reg   *acme.ExtendedAccount
+	key   crypto.Signer
 }
 
-func (u *legoUser) GetEmail() string                        { return u.email }
-func (u *legoUser) GetRegistration() *registration.Resource { return u.reg }
-func (u *legoUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
+func (u *legoUser) GetEmail() string                       { return u.email }
+func (u *legoUser) GetRegistration() *acme.ExtendedAccount { return u.reg }
+func (u *legoUser) GetPrivateKey() crypto.Signer           { return u.key }
+
+// savedRegistration is registration.json as it has always been written (lego v4's registration.Resource:
+// the account object and its URL). It is kept in that shape so a build that went back to an older
+// version still finds its accounts.
+type savedRegistration struct {
+	Body acme.Account `json:"body"`
+	URI  string       `json:"uri"`
+}
+
+func loadRegistration(b []byte) *acme.ExtendedAccount {
+	var sr savedRegistration
+	if json.Unmarshal(b, &sr) != nil || sr.URI == "" {
+		return nil
+	}
+	return &acme.ExtendedAccount{Account: sr.Body, Location: sr.URI}
+}
+
+func marshalRegistration(r *acme.ExtendedAccount) ([]byte, error) {
+	return json.Marshal(savedRegistration{Body: r.Account, URI: r.Location})
+}
 
 // account loads or creates the ACME account key for a directory + email (+ EAB key id).
 func (i *Issuer) account(dirURL, email, kid string) (*legoUser, string, error) {
@@ -323,10 +344,7 @@ func (i *Issuer) account(dirURL, email, kid string) (*legoUser, string, error) {
 		return nil, "", err
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "registration.json")); err == nil {
-		var reg registration.Resource
-		if json.Unmarshal(b, &reg) == nil {
-			u.reg = &reg
-		}
+		u.reg = loadRegistration(b)
 	}
 	return u, dir, nil
 }
@@ -349,7 +367,6 @@ func (i *Issuer) setup(ctx context.Context, r Request) (*lego.Client, *legoUser,
 	}
 	cfg := lego.NewConfig(user)
 	cfg.CADirURL = dirURL
-	cfg.Certificate.KeyType = keyType(r.KeyType)
 	cfg.HTTPClient.Transport = ctxTransport{ctx: ctx, next: cfg.HTTPClient.Transport}
 	client, err := lego.NewClient(cfg)
 	if err != nil {
@@ -360,27 +377,27 @@ func (i *Issuer) setup(ctx context.Context, r Request) (*lego.Client, *legoUser,
 
 // register creates the account at the CA the first time, with External Account Binding when the
 // provider has it, and remembers it. It reports whether it had to create it.
-func register(client *lego.Client, user *legoUser, accDir string, eab *EAB) (bool, error) {
+func register(ctx context.Context, client *lego.Client, user *legoUser, accDir string, eab *EAB) (bool, error) {
 	if user.reg != nil {
 		return false, nil
 	}
-	var reg *registration.Resource
+	var reg *acme.ExtendedAccount
 	var err error
 	if eab != nil {
 		hmac, herr := NormalizeHMAC(eab.HMAC)
 		if herr != nil {
 			return false, herr
 		}
-		reg, err = client.Registration.RegisterWithExternalAccountBinding(registration.RegisterEABOptions{
+		reg, err = client.Registration.RegisterWithExternalAccountBinding(ctx, registration.RegisterEABOptions{
 			TermsOfServiceAgreed: true, Kid: strings.TrimSpace(eab.Kid), HmacEncoded: hmac})
 	} else {
-		reg, err = client.Registration.Register(registration.RegisterOptions{TermsOfServiceAgreed: true})
+		reg, err = client.Registration.Register(ctx, registration.RegisterOptions{TermsOfServiceAgreed: true})
 	}
 	if err != nil {
 		return false, fmt.Errorf("register ACME account: %w", err)
 	}
 	user.reg = reg
-	if b, err := json.Marshal(reg); err == nil {
+	if b, err := marshalRegistration(reg); err == nil {
 		_ = os.WriteFile(filepath.Join(accDir, "registration.json"), b, 0o600)
 	}
 	return true, nil
@@ -396,7 +413,7 @@ func (i *Issuer) CheckAccount(ctx context.Context, r Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	created, err := register(client, user, accDir, r.EAB)
+	created, err := register(ctx, client, user, accDir, r.EAB)
 	if err != nil {
 		return "", err
 	}
@@ -415,21 +432,59 @@ func (i *Issuer) issueACME(ctx context.Context, r Request) (*plugin.Bundle, erro
 	// Names are validated with DNS-01 only: it works for plain host names and wildcards alike, and
 	// needs nothing from this server but outbound access. CertSmith is not a web server.
 	opts := []dns01.ChallengeOption{waitHook(ctx, r.Log, r.SettleFor)}
-	if len(r.Settings.DNSResolvers) > 0 {
-		opts = append(opts, dns01.AddRecursiveNameservers(dns01.ParseNameservers(r.Settings.DNSResolvers)))
-	}
+	// lego reads the resolvers to check propagation through from its default DNS client. Issuances run
+	// one at a time (issueMu), so setting it per run is safe, and an empty list means the system's own.
+	dnsOpts := dns01.NewOptions()
+	dnsOpts.RecursiveNameservers = r.Settings.DNSResolvers
+	dns01.SetDefaultClient(dns01.NewClient(dnsOpts))
 	if err := client.Challenge.SetDNS01Provider(r.Solver, opts...); err != nil {
 		return nil, err
 	}
-	if _, err := register(client, user, accDir, r.EAB); err != nil {
+	if _, err := register(ctx, client, user, accDir, r.EAB); err != nil {
 		return nil, err
 	}
 
-	res, err := client.Certificate.Obtain(certificate.ObtainRequest{Domains: r.Domains, Bundle: true})
+	res, err := client.Certificate.Obtain(ctx, certificate.ObtainRequest{
+		Domains: r.Domains, KeyType: keyType(r.KeyType), Bundle: true,
+		// lego v5 asks for a certificate without a common name unless told otherwise; v4 always
+		// included the first name, and devices list certificates by it, so keep that
+		EnableCommonName: true,
+	})
 	if err != nil {
 		return nil, err
 	}
-	return BundleFromPEM(r.Name, r.Domains, res.Certificate, res.PrivateKey)
+	key, err := legacyKeyPEM(res.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	return BundleFromPEM(r.Name, r.Domains, res.Certificate, key)
+}
+
+// legacyKeyPEM writes a private key in the PEM forms CertSmith has always stored and the device
+// plug-ins read: PKCS#1 for RSA and SEC 1 for ECDSA. lego v5 returns PKCS#8 ("PRIVATE KEY") instead.
+func legacyKeyPEM(in []byte) ([]byte, error) {
+	blk, _ := pem.Decode(in)
+	if blk == nil {
+		return nil, errors.New("the CA library returned no private key")
+	}
+	if blk.Type != "PRIVATE KEY" {
+		return in, nil // already PKCS#1 or SEC 1
+	}
+	k, err := x509.ParsePKCS8PrivateKey(blk.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("read the private key: %w", err)
+	}
+	switch p := k.(type) {
+	case *rsa.PrivateKey:
+		return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(p)}), nil
+	case *ecdsa.PrivateKey:
+		der, err := x509.MarshalECPrivateKey(p)
+		if err != nil {
+			return nil, err
+		}
+		return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
+	}
+	return nil, errors.New("the CA library returned a private key of a type CertSmith does not support")
 }
 
 // ---- built-in test CA ----------------------------------------------------

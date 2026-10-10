@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge/dns01"
+	"github.com/go-acme/lego/v5/challenge/dns01"
 	"github.com/miekg/dns"
 
 	"github.com/CautiousCapsLock/certsmith/internal/model"
@@ -97,14 +97,14 @@ func asNotFound(err error, target **net.DNSError) bool {
 
 func TestFixedWaitReplacesTheCheckAndNeverAsksTheNameservers(t *testing.T) {
 	asked := 0
-	check := func(fqdn, value string) (bool, error) { asked++; return true, nil }
+	check := func(_ context.Context, fqdn, value string) (bool, error) { asked++; return true, nil }
 	w := &waiter{ctx: context.Background(), settle: 60 * time.Millisecond}
 
-	if stop, err := w.run("d", "_acme-challenge.d.", "v", check); stop || err != nil {
+	if stop, err := w.run(context.Background(), "d", "_acme-challenge.d.", "v", check); stop || err != nil {
 		t.Fatalf("too early: must keep waiting, got stop=%v err=%v", stop, err)
 	}
 	time.Sleep(80 * time.Millisecond)
-	if stop, err := w.run("d", "_acme-challenge.d.", "v", check); !stop || err != nil {
+	if stop, err := w.run(context.Background(), "d", "_acme-challenge.d.", "v", check); !stop || err != nil {
 		t.Fatalf("after the wait it must let validation proceed, got stop=%v err=%v", stop, err)
 	}
 	if asked != 0 {
@@ -114,15 +114,15 @@ func TestFixedWaitReplacesTheCheckAndNeverAsksTheNameservers(t *testing.T) {
 
 func TestNormalModeDelegatesToTheCheckAndStopsWhenCancelled(t *testing.T) {
 	calls := 0
-	check := dns01.PreCheckFunc(func(fqdn, value string) (bool, error) { calls++; return false, nil })
+	check := dns01.PreCheckFunc(func(_ context.Context, fqdn, value string) (bool, error) { calls++; return false, nil })
 	w := &waiter{ctx: context.Background()}
-	if stop, _ := w.run("d", "f.", "v", check); stop || calls != 1 {
+	if stop, _ := w.run(context.Background(), "d", "f.", "v", check); stop || calls != 1 {
 		t.Fatalf("normal mode must ask the real check: stop=%v calls=%d", stop, calls)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	w = &waiter{ctx: ctx}
-	if stop, err := w.run("d", "f.", "v", check); !stop || err != errCancelled {
+	if stop, err := w.run(context.Background(), "d", "f.", "v", check); !stop || err != errCancelled {
 		t.Fatalf("a stopped issuance must end the wait at once: stop=%v err=%v", stop, err)
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-acme/lego/v4/challenge/dns01"
+	"github.com/go-acme/lego/v5/challenge/dns01"
 
 	"github.com/CautiousCapsLock/certsmith/internal/model"
 	"github.com/CautiousCapsLock/certsmith/internal/plugin"
@@ -113,14 +113,14 @@ func (e *Engine) TestDNS(ctx context.Context, kind string, cfg map[string]string
 	rnd := make([]byte, 12)
 	_, _ = rand.Read(rnd)
 	token, keyAuth := hex.EncodeToString(rnd), "certsmith-dns-test."+hex.EncodeToString(rnd)
-	info := dns01.GetChallengeInfo(domain, keyAuth)
+	info := dns01.GetChallengeInfo(ctx, domain, keyAuth)
 	fqdn := info.EffectiveFQDN
 	if fqdn != info.FQDN {
 		note("%s is a CNAME, so the challenge is published at %s", strings.TrimSuffix(info.FQDN, "."), strings.TrimSuffix(fqdn, "."))
 	}
 
 	start := time.Now()
-	if err := solver.Present(domain, token, keyAuth); err != nil {
+	if err := solver.Present(ctx, domain, token, keyAuth); err != nil {
 		add(false, "The provider refused to create the record: %v", err)
 		if h := hintFor(err.Error()); h != "" {
 			note("%s", h)
@@ -133,7 +133,7 @@ func (e *Engine) TestDNS(ctx context.Context, kind string, cfg map[string]string
 	cleaned := false
 	cleanup := func() DNSStep {
 		cleaned = true
-		if err := solver.CleanUp(domain, token, keyAuth); err != nil {
+		if err := solver.CleanUp(ctx, domain, token, keyAuth); err != nil {
 			return DNSStep{OK: false, Msg: fmt.Sprintf("Could not remove the test record (delete the TXT record %s = %s by hand): %v", strings.TrimSuffix(fqdn, "."), info.Value, err)}
 		}
 		// Several providers, lego's Cloudflare one among them, log a failed delete and still
@@ -155,7 +155,7 @@ func (e *Engine) TestDNS(ctx context.Context, kind string, cfg map[string]string
 	}()
 	add(true, "Provider created TXT %s = %s (took %s)", strings.TrimSuffix(fqdn, "."), info.Value, time.Since(start).Round(100*time.Millisecond))
 
-	zone, err := dns01.FindZoneByFqdn(fqdn)
+	zone, err := dns01.DefaultClient().FindZoneByFqdn(ctx, fqdn)
 	if err != nil {
 		add(false, "Could not work out which zone serves %s: %v", strings.TrimSuffix(fqdn, "."), err)
 		return append(steps, cleanup()), nil

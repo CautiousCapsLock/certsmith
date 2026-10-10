@@ -3,8 +3,8 @@ package dns
 import (
 	"strings"
 
-	"github.com/go-acme/lego/v4/challenge"
-	"github.com/go-acme/lego/v4/providers/dns"
+	"github.com/go-acme/lego/v5/challenge"
+	"github.com/go-acme/lego/v5/providers/dns"
 
 	"github.com/CautiousCapsLock/certsmith/internal/plugin"
 )
