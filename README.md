@@ -63,7 +63,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 
 ### Status
 
-CertSmith is pre-1.0. The FortiGate (FortiOS 7.6 and 8.0) and the FortiManager and FortiAnalyzer (7.4) targets have been run against real devices. External Account Binding is tested against a mock certificate authority only, not yet against a live one. The other targets are covered by automated tests.
+CertSmith is pre-1.0. The FortiGate (FortiOS 7.6 and 8.0) and the FortiManager and FortiAnalyzer (7.4) targets have been run against real devices. External Account Binding has been verified against a live certificate authority, ZeroSSL; the other External Account Binding authorities (Sectigo, Google Trust Services and custom directories) are tested against a mock authority only. The other targets are covered by automated tests.
 
 ## Requirements
 
