@@ -82,6 +82,11 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 	if regexp.MustCompile(`onclick: \(\) => importForm\(null\)`).MatchString(get("/app.js")) || strings.Contains(get("/app.js"), "'Import certificate' }, 'Import certificate'") {
 		t.Error("the Certificates page must not have its own Import certificate button")
 	}
+	// the row buttons of the providers tables sit against the right-hand edge
+	if !regexp.MustCompile(`table\.list td\.act \{[^}]*text-align: right`).MatchString(get("/style.css")) ||
+		!regexp.MustCompile(`h\('td', \{ class: 'act' \}, h\('button', \{ class: 'btn small ghost', onclick: \(\) => providerForm\(p\)`).MatchString(get("/app.js")) {
+		t.Error("the Edit buttons of the providers tables must be right-aligned in an 'act' cell")
+	}
 	if !regexp.MustCompile(`section\('Imported certificates'`).MatchString(get("/app.js")) {
 		t.Error("the providers page must list imported certificates in their own section")
 	}

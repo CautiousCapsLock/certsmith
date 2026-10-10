@@ -617,7 +617,7 @@ function renderTargets() {
     shown.sort((a, b) => String(a[targetSort.key]).localeCompare(String(b[targetSort.key]), undefined, { numeric: true, sensitivity: 'base' }) * targetSort.dir);
     body.replaceChildren(...(shown.length ? shown.flatMap(r => [h('tr', { class: usesAPI(r.t.kind) ? 'hasverbose' : '' },
       h('td', {}, r.name), h('td', { class: 'mono' }, r.addr || '-'), h('td', {}, r.type), h('td', {}, r.cert || '-'), h('td', {}, r.status),
-      h('td', { class: 'nowrap' }, redeployButton(r.t), callsButton(r.t), h('button', { class: 'btn small ghost', onclick: () => targetForm(r.t) }, 'Edit'))),
+      h('td', { class: 'act' }, redeployButton(r.t), callsButton(r.t), h('button', { class: 'btn small ghost', onclick: () => targetForm(r.t) }, 'Edit'))),
       usesAPI(r.t.kind) ? h('tr', { class: 'verboserow' }, h('td', { colspan: 6 }, callsPanel(r.t))) : null].filter(Boolean))
       : [h('tr', {}, h('td', { colspan: 6, class: 'meta', style: 'text-align:center;padding:22px' }, 'No target matches "' + targetFilter + '"'))]));
     headCells.forEach(th => th.classList.toggle('sorted', th.dataset.key === targetSort.key));
@@ -648,7 +648,7 @@ function renderDNS() {
   const usedBy = p => (S.certificates || []).filter(c => c.dns_id === p.id).map(c => c.name).join(', ') || '-';
   const table = (head, rows) => h('table', { class: 'list' },
     h('thead', {}, h('tr', {}, [...head, ''].map(x => h('th', {}, x)))), h('tbody', {}, rows));
-  const edit = p => h('td', {}, h('button', { class: 'btn small ghost', onclick: () => providerForm(p) }, 'Edit'));
+  const edit = p => h('td', { class: 'act' }, h('button', { class: 'btn small ghost', onclick: () => providerForm(p) }, 'Edit'));
   const section = (title, intro, body) => h('section', { class: 'psection' },
     h('h2', {}, title), h('p', { class: 'meta', style: 'margin:2px 0 10px' }, intro), body);
   const none = text => h('div', { class: 'card empty' }, text);
@@ -666,7 +666,7 @@ function renderDNS() {
     section('Imported certificates', 'Certificates that were issued outside CertSmith and uploaded as files. CertSmith deploys and monitors them but cannot renew them: upload the new certificate with Replace when it arrives.',
       imported.length ? table(['Name', 'Issued by', 'Names', 'Expires'], imported.map(c => h('tr', {},
           h('td', {}, c.name), h('td', {}, c.issuer || 'unknown'), h('td', {}, (c.domains || []).join(', ')), h('td', {}, fmt(c.not_after)),
-          h('td', {}, h('button', { class: 'btn small', title: 'Upload the new certificate; targets that were deployed to receive it', onclick: () => importForm(c) }, 'Replace'), ' ',
+          h('td', { class: 'act' }, h('button', { class: 'btn small', title: 'Upload the new certificate; targets that were deployed to receive it', onclick: () => importForm(c) }, 'Replace'), ' ',
             h('button', { class: 'btn small ghost', onclick: () => importedEditForm(c) }, 'Edit'))
         )))
         : none('No imported certificates. Select Add provider, then Import an existing certificate, to upload one.')));

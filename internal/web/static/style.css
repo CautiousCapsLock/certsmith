@@ -84,6 +84,8 @@ h2 { font-size: 15px; margin: 0; }
 
 table.list { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 table.list th, table.list td { text-align: left; padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+/* the column of row buttons: as narrow as its buttons, and against the right-hand edge of the row */
+table.list td.act { text-align: right; white-space: nowrap; width: 1%; }
 table.list th { border-top: 0; color: var(--muted); font-weight: 600; font-size: 12.5px; background: var(--idle-bg); }
 .lvl-error { color: var(--bad); } .lvl-warn { color: var(--warn); } .lvl-info { color: var(--muted); }
 
