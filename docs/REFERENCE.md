@@ -123,7 +123,18 @@ Without `-wipe`, a new random password is set for the user and printed once. The
 | `CERTSMITH_ADMIN_PASSWORD` | unset | Creates the first administrator at start-up, for automated installs, instead of the setup wizard. At least 12 characters. Ignored once any user exists, and when empty. |
 | `CERTSMITH_ADMIN_USER` | `admin` | User name for the account created from `CERTSMITH_ADMIN_PASSWORD`. |
 | `CERTSMITH_ALLOW_COMMANDS` | unset | Set to `1` to permit the local-files target to run its post-deployment command. |
+| `CERTSMITH_REPO` | `CautiousCapsLock/certsmith` | `owner/name` of the repository the daemon asks for newer releases. The same variable selects the repository for `get.sh`. |
+| `CERTSMITH_UPDATE_API` | `https://api.github.com` | Base address of the release API. For testing only. |
 | `CERTSMITH_MASTER_KEY` | unset | The key that encrypts stored credentials: 64 hexadecimal characters (32 bytes). When set it is used instead of `<data>/master.key`, and no file is created. It must then be supplied on every start; losing it makes stored credentials unrecoverable. |
+
+### Update check
+
+The daemon asks the release API for the latest published release once a day (an hour after a failure) and
+when **Settings → Software → Check now** is used. It reads one JSON document, sends only the request itself
+and a `User-Agent` of `certsmith/<version>`, and never downloads or installs anything. Pre-releases and drafts
+are ignored. The automatic check is on by default and is switched off with **Check for updates automatically**
+in Settings; a manual check works either way. Nothing is installed from the web interface: an available
+update shows the install command to run on the server.
 
 ### Provided to a post-deployment command
 
@@ -138,7 +149,7 @@ The local-files target runs its command with the daemon's environment plus:
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `CERTSMITH_VERSION`, `CERTSMITH_REPO`, `CERTSMITH_BASE_URL` | `get.sh` | See [get.sh](#getsh-online-installer). |
+| `CERTSMITH_VERSION`, `CERTSMITH_REPO`, `CERTSMITH_BASE_URL` | `get.sh` | See [get.sh](#getsh-online-installer). `CERTSMITH_REPO` is also read by the daemon. |
 | `CERTSMITH_WAIT`, `CERTSMITH_ROOT` | `install.sh` | See [install.sh](#installsh-installer-and-upgrader). |
 | `CHECK_EXTRA_PATTERN` | `scripts/check-private-addrs.sh` | Extended regular expression forbidden in tracked source, in addition to private-range addresses. In CI it is read from the repository variable of the same name, so the value need not be committed. |
 

@@ -60,6 +60,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 | Verification | Scheduled and on-demand checks of the certificate each target is serving: correct certificate, remaining validity and complete chain. |
 | Visibility | Every API call sent to a device is recorded with the device's response and shown beside the target, together with a description of each call a target type can make. |
 | Auditing | A log of certificate operations and a separate audit log of administrative actions. Both can be filtered. |
+| Versions | The running version is shown on every page. Once a day the daemon checks whether a newer release has been published and, if so, shows the install command to run. The check can be switched off. |
 
 ### Status
 
@@ -152,6 +153,7 @@ After editing the file, run `systemctl restart certsmith`.
 | `CERTSMITH_ADMIN_PASSWORD` | Create the first administrator at start-up for automated installations, instead of using the setup wizard (at least 12 characters). |
 | `CERTSMITH_ADMIN_USER` | User name for that account. Defaults to `admin`. |
 | `CERTSMITH_ALLOW_COMMANDS=1` | Permit the local-files target to run its post-deployment command. Disabled by default. |
+| `CERTSMITH_REPO` | `owner/name` of the repository checked for newer releases (and used by `get.sh`). |
 | `CERTSMITH_MASTER_KEY` | The 64-hexadecimal-character key that encrypts stored credentials. When set it replaces `master.key`, and must then be supplied on every start. |
 
 The complete list, including the variables passed to a post-deployment command and the installer's testing settings, is in [docs/REFERENCE.md](docs/REFERENCE.md).
@@ -177,6 +179,7 @@ All state is in `/var/lib/certsmith`. Back up the whole directory and store the 
 - Certificates, private keys, tokens and request bodies are never written to the API call log.
 - Device API accounts used by CertSmith should be restricted to the CertSmith server's address (for example Trusted Hosts on a FortiGate). Update that restriction before changing the server's address.
 - Report a suspected vulnerability through GitHub's private vulnerability reporting, not in a public issue. See [SECURITY.md](SECURITY.md).
+- The only outbound request that is not to a certificate authority, a DNS provider or a managed device is the daily check for a newer release. It reads one document from `api.github.com`, sends nothing about the installation, and can be switched off in Settings.
 - The licences of the bundled third-party software are in [THIRD_PARTY_NOTICES.txt](internal/web/static/THIRD_PARTY_NOTICES.txt), which every release archive and the web interface also carry.
 
 ## Building from source

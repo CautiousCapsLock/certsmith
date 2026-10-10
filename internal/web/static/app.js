@@ -52,6 +52,7 @@ let me = '';         // signed-in user
 let users = [];      // all users (names only)
 let schema = null;   // plugin descriptors
 let view = 'overview';
+let appVersion = '', updateInfo = null; // what the server says about this build and newer releases
 let modalOpen = false;
 
 const zero = d => !d || String(d).startsWith('0001-');
@@ -97,6 +98,8 @@ async function refresh(opts) {
     S = res.db;
     me = res.me || ''; users = res.users || [];
     uiCert = res.ui_cert || {};
+    appVersion = res.version || '';
+    updateInfo = res.update || null;
     for (const k of ['dns_providers', 'certificates', 'targets', 'events', 'pending_dns']) S[k] = S[k] || [];
     if (!schema) schema = await api('GET', '/api/schema');
     if (!modalOpen && !authing && !(opts && opts.background && userIsEditing())) { render(); lastSig = sig; }
@@ -225,6 +228,22 @@ async function boot() {
 // ---- layout ---------------------------------------------------------------------
 const TABS = [['overview', 'Certificates'], ['targets', 'Targets'], ['dns', 'Certificate providers'], ['settings', 'Settings'], ['events', 'Events']];
 
+// "v0.12.2" and "0.12.2" are the same version; the builds of this program carry "+commit" after it.
+const plainVersion = v => String(v || '').replace(/^v/, '').split('+')[0];
+const safeLink = u => (typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u)) ? u : '';
+
+function renderFooter() {
+  const f = document.getElementById('appfoot');
+  if (!f) return;
+  const kids = [h('span', {}, 'CertSmith' + (appVersion ? ' ' + plainVersion(appVersion) : ''))];
+  if (updateInfo && updateInfo.available) {
+    kids.push(' · ', h('a', { href: '#', onclick: e => { e.preventDefault(); view = 'settings'; render(); } },
+      'Version ' + plainVersion(updateInfo.latest) + ' is available'));
+  }
+  kids.push(' · ', h('a', { href: 'THIRD_PARTY_NOTICES.txt', target: '_blank', rel: 'noopener' }, 'Third-party licences'));
+  f.replaceChildren(...kids);
+}
+
 let lastView = null, lastRenderAt = 0;
 function render() {
   // The same page redrawn (the automatic refresh): keep the reader's place. A different page starts at the top.
@@ -236,6 +255,7 @@ function render() {
   const v = document.getElementById('view');
   const fn = { overview: renderOverview, targets: renderTargets, dns: renderDNS, settings: renderSettings, events: renderEvents }[view];
   v.replaceChildren(fn());
+  renderFooter();
   lastView = view; lastRenderAt = Date.now();
   window.scrollTo(0, keepY);
 }
@@ -517,6 +537,10 @@ function renderOverview() {
     // spread: the native append() would print the text "null" for an absent banner
     ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email)))
       ? [h('div', { class: 'banner warn' }, 'Set an account email in ', h('a', { href: '#', onclick: e => { e.preventDefault(); view = 'settings'; render(); } }, 'Settings'), ' before issuing certificates.')]
+      : []),
+    ...((updateInfo && updateInfo.available)
+      ? [h('div', { class: 'banner info' }, 'Version ' + plainVersion(updateInfo.latest) + ' is available. ',
+          h('a', { href: '#', onclick: e => { e.preventDefault(); view = 'settings'; render(); } }, 'See Settings'), ' for how to update.')]
       : []),
     ...(S.pending_dns || []).map(p => h('div', { class: 'banner warn' },
       'A DNS test may have left a TXT record in the zone: ', h('span', { class: 'mono' }, p.fqdn.replace(/\.$/, '') + ' = ' + p.value),
@@ -1411,10 +1435,13 @@ function renderSettings() {
   };
   const hook = F('webhook_url', 'Webhook URL (optional)', 'text', s.webhook_url, { help: 'Slack, Mattermost, Microsoft Teams or any endpoint that accepts JSON with a "text" field.' });
 
+  const updChk = F('update_check', 'Check for updates automatically', 'bool', !s.update_check_disabled,
+    { help: 'Asks the release host (api.github.com) once a day whether a newer version has been published. Nothing about this installation is sent.' });
+
   const collect = () => ({
     acme_directory: dir.get(), acme_email: email.get(), renew_before_days: +renew.get() || 30, warn_days: +warn.get() || 14,
     probe_minutes: +probe.get() || 15, dns_resolvers: resolvers.get(), dns_check: dnsCheck.get(), dns_wait_seconds: +dnsWait.get() || 25,
-    notify_success: !!s.notify_success, webhook_url: hook.get().trim(),
+    notify_success: !!s.notify_success, webhook_url: hook.get().trim(), update_check_disabled: updChk.get() !== 'true',
     alert_routing: { email: alertTypes.filter(t => alertBoxes.email[t.id].checked).map(t => t.id), webhook: alertTypes.filter(t => alertBoxes.webhook[t.id].checked).map(t => t.id) },
     smtp: { enabled: sm.enabled.get() === 'true', host: sm.host.get().trim(), port: +sm.port.get() || 587, security: sm.security.get(),
       username: sm.username.get(), password: sm.password.get(), from: sm.from.get().trim(),
@@ -1487,6 +1514,46 @@ function renderSettings() {
       } }, 'Configure SSL certificate')) : null);
   };
 
+  // The installed version, and whether a newer release has been published. The status is redrawn in
+  // place by "Check now" so that nothing the person has typed elsewhere on this page is lost.
+  const softwareCard = () => {
+    const ver = plainVersion(appVersion) || 'unknown';
+    const build = String(appVersion).split('+')[1] || '';
+    const status = h('div');
+    const paint = info => {
+      const kids = [];
+      if (!info) {
+        kids.push(h('div', { class: 'meta' }, 'Update checks are not available in this build.'));
+      } else {
+        if (info.available) {
+          const link = safeLink(info.url);
+          kids.push(h('div', { class: 'swline' }, chip('Update available', 'warn'), h('strong', {}, 'Version ' + plainVersion(info.latest)),
+            link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, 'Release notes') : null));
+          kids.push(h('p', { class: 'meta', style: 'margin:6px 0 4px' },
+            'To update, run this on the server that runs CertSmith, as root or with sudo. Settings and data are kept, and the previous version is restored if the new one does not start.'));
+          kids.push(h('pre', { class: 'cmd' }, 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
+        } else if (info.latest) {
+          kids.push(h('div', { class: 'swline' }, chip('Up to date', 'ok'),
+            h('span', { class: 'meta' }, 'The latest published release is ' + plainVersion(info.latest) + '.')));
+        }
+        if (info.error) kids.push(h('div', { class: 'meta', style: 'color:var(--warn)' }, 'Could not check for updates: ' + info.error));
+        kids.push(h('div', { class: 'meta' }, info.checked_at && !zero(info.checked_at) ? 'Last checked ' + fmt(info.checked_at) + '.' : 'Not checked yet.'));
+      }
+      status.replaceChildren(...kids.filter(Boolean));
+    };
+    paint(updateInfo);
+    const btn = h('button', { class: 'btn', type: 'button' }, 'Check now');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try { updateInfo = await api('POST', '/api/update/check'); paint(updateInfo); renderFooter(); }
+      catch (err) { toast(err.message, true); }
+      btn.disabled = false;
+    });
+    return card('Software', 'The installed version, and whether a newer release has been published.',
+      h('div', { class: 'swline' }, h('strong', {}, 'Version ' + ver), build ? h('span', { class: 'meta' }, 'build ' + build) : null),
+      status, h('div', { style: 'margin:10px 0 6px' }, btn), updChk.wrap);
+  };
+
   return h('div', {},
     h('h1', {}, 'Settings'), h('p', { class: 'sub' }, "Configuration for Let's Encrypt, DNS validation, renewal and monitoring, alerting, the HTTPS certificate for this page, and users."),
     // two stacks, split so both end at about the same height; they sit side by side when there is room
@@ -1496,7 +1563,8 @@ function renderSettings() {
         card("Let's Encrypt (ACME)", 'Applies to every Let\'s Encrypt provider. Other certificate authorities are configured under Certificate providers.', dir.wrap, email.wrap),
         card('DNS validation', 'How CertSmith confirms that the DNS challenge record is published. Applies to every certificate provider.', resField, dnsCheck.wrap, dnsWait.wrap),
         card('Renewal & monitoring', 'Renewal threshold, expiry alert threshold and the interval for checking live endpoints.', renew.wrap, warn.wrap, probe.wrap),
-        webUICard()),
+        webUICard(),
+        softwareCard()),
       h('div', { class: 'stack' },
         card('Email alerts', 'Alerts sent by email when a certificate is close to expiry, issuing or deployment fails, or a device serves an unexpected certificate.',
           sm.enabled.wrap, pair(sm.host, sm.port), pair(sm.security, sm.username), pair(sm.password, sm.from), sm.to.wrap),

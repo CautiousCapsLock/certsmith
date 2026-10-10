@@ -121,6 +121,14 @@ table.list th { border-top: 0; color: var(--muted); font-weight: 600; font-size:
 }
 
 body.authing .top { display: none; }
+body.authing .appfoot { display: none; }
+.appfoot { max-width: 1180px; margin: 0 auto; padding: 4px 20px 28px; color: var(--muted); font-size: 12.5px; }
+.appfoot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* Settings > Software */
+.swline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 6px; }
+.swline a { color: var(--accent); }
+pre.cmd { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+
 .authwrap { min-height: 70vh; display: flex; align-items: center; justify-content: center; }
 .authcard { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px 26px; box-shadow: 0 10px 40px rgba(0,0,0,.18); }
 .authcard .field input { font-size: 15px; }
@@ -174,6 +182,7 @@ details.verbose > summary { cursor: pointer; color: var(--muted); font-size: 12.
 pre.acmelog { max-height: 280px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0 0; font: 12px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }
 .banner.warn { background: var(--warn-bg); color: var(--warn); }
+.banner.info { background: var(--idle-bg); color: var(--text); border: 1px solid var(--line); }
 .banner a { color: inherit; font-weight: 600; }
 
 /* spinner button that turns into a red Stop on hover */

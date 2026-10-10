@@ -29,6 +29,7 @@ import (
 	"github.com/CautiousCapsLock/certsmith/internal/plugin"
 	"github.com/CautiousCapsLock/certsmith/internal/secret"
 	"github.com/CautiousCapsLock/certsmith/internal/store"
+	"github.com/CautiousCapsLock/certsmith/internal/update"
 )
 
 //go:embed static
@@ -40,6 +41,11 @@ type Server struct {
 	Eng     *engine.Engine
 	DataDir string
 	Log     *slog.Logger
+
+	// Version is the running build; Updates asks the release host about newer ones. Both are set by
+	// SetUpdates after New and are optional (tests, and builds with no release host).
+	Version string
+	Updates *update.Checker
 
 	sessionKey []byte
 	lim        *limiter
@@ -64,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/state", s.state)
+	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
 	mux.HandleFunc("GET /api/schema", s.schema)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test-alert", s.testAlert)
@@ -417,7 +424,69 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		audit = []model.AuditEntry{}
 	}
 	db.Events, db.Audit = ev, audit
-	writeJSON(w, map[string]any{"now": time.Now(), "me": userFrom(r), "users": users, "ui_cert": uiCertInfo(), "db": db})
+	out := map[string]any{"now": time.Now(), "me": userFrom(r), "users": users, "ui_cert": uiCertInfo(), "db": db, "version": s.Version}
+	if s.Updates != nil {
+		out["update"] = s.Updates.Last()
+	}
+	writeJSON(w, out)
+}
+
+// SetUpdates tells the server which version is running and where to look for newer ones.
+func (s *Server) SetUpdates(version string, c *update.Checker) {
+	s.Version, s.Updates = version, c
+}
+
+// checkUpdate looks for a newer release now, whatever the automatic setting says. Repeated clicks
+// within a few seconds get the answer already held, so the release host is not hammered.
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updates == nil {
+		fail(w, http.StatusServiceUnavailable, "update checks are not available in this build")
+		return
+	}
+	if last := s.Updates.Last(); !last.CheckedAt.IsZero() && time.Since(last.CheckedAt) < 10*time.Second {
+		writeJSON(w, last)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	writeJSON(w, s.Updates.Check(ctx))
+}
+
+// AutoCheckUpdates runs the automatic check: once a day, an hour after a failure, and not at all
+// when the administrator switched it off. It returns when ctx ends.
+func (s *Server) AutoCheckUpdates(ctx context.Context) {
+	if s.Updates == nil {
+		return
+	}
+	timer := time.NewTimer(time.Minute) // not at the very start: let the service settle first
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		s.autoCheckOnce(ctx)
+		timer.Reset(15 * time.Minute)
+	}
+}
+
+func (s *Server) autoCheckOnce(ctx context.Context) {
+	var disabled bool
+	s.St.View(func(db *model.DB) { disabled = db.Settings.UpdateCheckDisabled })
+	if disabled || !update.Due(s.Updates.Last(), time.Now()) {
+		return
+	}
+	before := s.Updates.Last().Latest
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	info := s.Updates.Check(cctx)
+	switch {
+	case info.Error != "":
+		s.Log.Info("update check failed", "err", info.Error)
+	case info.Available && info.Latest != before:
+		s.Log.Info("a newer version is available", "current", info.Current, "latest", info.Latest)
+	}
 }
 
 // ---- settings ------------------------------------------------------------------------

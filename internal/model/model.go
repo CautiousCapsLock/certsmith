@@ -38,6 +38,9 @@ type Settings struct {
 	AlertRouting *AlertRouting `json:"alert_routing,omitempty"`
 	SMTP         SMTP          `json:"smtp"`
 	WebhookURL   string        `json:"webhook_url"` // Slack/Teams/generic JSON alerts
+	// UpdateCheckDisabled turns off the daily look for a newer release. It is a "disabled" switch so
+	// that the zero value, which every existing installation has, means the check is on.
+	UpdateCheckDisabled bool `json:"update_check_disabled"`
 }
 
 func DefaultSettings() Settings {

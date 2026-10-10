@@ -36,6 +36,7 @@ import (
 	"github.com/CautiousCapsLock/certsmith/internal/secret"
 	"github.com/CautiousCapsLock/certsmith/internal/store"
 	"github.com/CautiousCapsLock/certsmith/internal/uitls"
+	"github.com/CautiousCapsLock/certsmith/internal/update"
 	"github.com/CautiousCapsLock/certsmith/internal/web"
 
 	_ "github.com/CautiousCapsLock/certsmith/internal/dns"
@@ -131,6 +132,13 @@ func run(log *slog.Logger, data, listen, tlsDir string, noTLS bool, redirect str
 	if err != nil {
 		return err
 	}
+	// Looks for newer releases once a day (and on request from the web interface). It only reads.
+	checker := update.New(os.Getenv("CERTSMITH_REPO"), version)
+	if api := os.Getenv("CERTSMITH_UPDATE_API"); api != "" { // a test hook
+		checker.APIBase = api
+	}
+	ws.SetUpdates(version, checker)
+	go ws.AutoCheckUpdates(ctx)
 	// Request contexts derive from baseCtx, which is cancelled when shutdown starts, so a
 	// long request (a DNS test) stops at once and cleans up instead of being cut off.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
