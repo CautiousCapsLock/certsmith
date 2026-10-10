@@ -147,6 +147,7 @@ The local-files target runs its command with the daemon's environment plus:
 |---|---|
 | `/usr/local/bin/certsmith` | The program. |
 | `/etc/systemd/system/certsmith.service` | The systemd unit. |
+| `/usr/share/doc/certsmith/THIRD_PARTY_NOTICES.txt` | The licences of the software bundled in the program. Also served by the web interface at `/THIRD_PARTY_NOTICES.txt`. |
 | `/etc/certsmith/certsmith.env` | `CERTSMITH_LISTEN` and `CERTSMITH_ARGS`. Created once; never overwritten by an upgrade. |
 | `/etc/certsmith/firewall.rules` | The firewall rules the installer added, so `--uninstall` removes only those. |
 | `/var/lib/certsmith/` | State: `db.json`, `master.key`, `session.key`, `acme/`, `certs/`, `targets/`, `ui-tls/`. |
@@ -161,3 +162,4 @@ The local-files target runs its command with the daemon's environment plus:
 | `scripts/test-get.sh` | Tests `get.sh` with a stubbed network, under `sh` and `dash`. |
 | `scripts/check-private-addrs.sh` | Fails if a private-range IPv4 address appears in tracked source (tests and Markdown excepted). |
 | `scripts/check-docs.sh` | Fails if an option, flag or environment variable in the code is not documented. |
+| `go run ./scripts/notices` | Regenerates `internal/web/static/THIRD_PARTY_NOTICES.txt` from the licence files of the modules compiled into the binary. With `-check` it fails if the file is out of date. It also fails when a dependency's licence is not on the allowlist (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0). |

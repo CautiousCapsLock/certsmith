@@ -38,6 +38,9 @@ jobs:
           sudo apt-get install -y -qq dash >/dev/null 2>&1 || true
           sh scripts/test-install.sh
 
+      - name: Third-party notices are current (and every licence is allowed)
+        run: go run ./scripts/notices -check
+
       - name: Online installer tests (sh and dash)
         run: sh scripts/test-get.sh
 

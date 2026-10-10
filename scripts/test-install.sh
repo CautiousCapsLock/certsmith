@@ -55,6 +55,7 @@ newcase() { # name
   mkdir -p "$R" "$REL"; : > "$LOG"
   cp "$here/deploy/install.sh" "$here/deploy/certsmith.service" "$REL/"
   printf '#!/bin/sh\necho 9.9.9\n' > "$REL/certsmith-linux-amd64"; chmod +x "$REL/certsmith-linux-amd64"
+  echo "third-party notices" > "$REL/THIRD_PARTY_NOTICES.txt"
   unset STUB_UFW STUB_UFW_HAS STUB_UFW_FAIL STUB_LISTEN STUB_ADDRS STUB_HAS_UU STUB_NOUSER
 }
 run() { # installer arguments
@@ -90,6 +91,8 @@ suite() {
   logged "apt-get install.*unattended-upgrades" && pass "security updates enabled" || fail "security updates enabled"
   case "$OUT" in *"https://192.0.2.10/"*) pass "prints URL without :443" ;; *) fail "prints URL without :443" "$OUT" ;; esac
   case "$OUT" in *"AA:BB:CC:DD"*) pass "prints certificate fingerprint" ;; *) fail "prints certificate fingerprint" ;; esac
+
+  check "third-party notices are installed with the program" test -f "$R/usr/share/doc/certsmith/THIRD_PARTY_NOTICES.txt"
 
   newcase rerun
   STUB_LISTEN=443 run; : > "$LOG"; STUB_LISTEN=443 run

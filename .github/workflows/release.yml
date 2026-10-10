@@ -36,6 +36,7 @@ jobs:
               -ldflags "-s -w -X main.version=${version}" \
               -o "stage/${pkg}/certsmith-linux-${arch}" ./cmd/certsmith
             cp deploy/install.sh deploy/certsmith.service "stage/${pkg}/"
+            cp internal/web/static/THIRD_PARTY_NOTICES.txt "stage/${pkg}/"
             tar -C stage -czf "out/${pkg}.tar.gz" "${pkg}"
           done
           (cd out && sha256sum ./*.tar.gz > SHA256SUMS)

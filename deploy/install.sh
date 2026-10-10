@@ -131,6 +131,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     done < "$FW_RECORD"
   fi
   rm -f "$ENV_PATH" "$FW_RECORD"; rmdir "$CONF_DIR" 2>/dev/null || true
+  rm -f "$ROOT/usr/share/doc/certsmith/THIRD_PARTY_NOTICES.txt"; rmdir "$ROOT/usr/share/doc/certsmith" 2>/dev/null || true
   if [ "$PURGE" -eq 1 ]; then
     if [ "$YES" -ne 1 ]; then
       printf 'This permanently deletes %s (database, keys, certificates). Type DELETE to continue: ' "$DATA_DIR"
@@ -271,6 +272,12 @@ install -m 0755 $OWN "$BIN" "$BIN_PATH.new"
 mv -f "$BIN_PATH.new" "$BIN_PATH"
 # shellcheck disable=SC2086
 install -m 0644 $OWN "$UNIT_SRC" "$UNIT_PATH"
+# the licences of the bundled components travel with the program
+if [ -f ./THIRD_PARTY_NOTICES.txt ]; then
+  mkdir -p "$ROOT/usr/share/doc/certsmith"
+  # shellcheck disable=SC2086
+  install -m 0644 $OWN ./THIRD_PARTY_NOTICES.txt "$ROOT/usr/share/doc/certsmith/THIRD_PARTY_NOTICES.txt"
+fi
 
 if [ "$HAD_ENV" -eq 0 ] || [ "$LISTEN" != "$CUR_LISTEN" ] || [ "$CUR_ARGS" != "$ORIG_ARGS" ]; then
   umask 022

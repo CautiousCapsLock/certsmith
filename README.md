@@ -177,6 +177,7 @@ All state is in `/var/lib/certsmith`. Back up the whole directory and store the 
 - Certificates, private keys, tokens and request bodies are never written to the API call log.
 - Device API accounts used by CertSmith should be restricted to the CertSmith server's address (for example Trusted Hosts on a FortiGate). Update that restriction before changing the server's address.
 - Report a suspected vulnerability through GitHub's private vulnerability reporting, not in a public issue. See [SECURITY.md](SECURITY.md).
+- The licences of the bundled third-party software are in [THIRD_PARTY_NOTICES.txt](internal/web/static/THIRD_PARTY_NOTICES.txt), which every release archive and the web interface also carry.
 
 ## Building from source
 
@@ -201,7 +202,7 @@ To run without installing: `go run ./cmd/certsmith -data ./data -listen 127.0.0.
 | `internal/store`, `internal/secret`, `internal/model` | Persistence, encryption of stored secrets and data types. |
 | `deploy/` | systemd unit and the installer packaged with each release. |
 | `docs/` | [Command-line reference](docs/REFERENCE.md), and plans for the [installer and appliance](docs/APPLIANCE.md) and [target plugins](docs/PLUGINS.md). |
-| `scripts/` | Repository checks and the installer tests. |
+| `scripts/` | Repository checks, the installer tests, and `scripts/notices`, which generates the third-party licence notices. |
 
 ## Releases
 
