@@ -74,4 +74,8 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 	if !regexp.MustCompile(`class: 'reveal'[^}]*tabindex: '-1'`).MatchString(get("/app.js")) {
 		t.Error("the Show button on password fields must be skipped by the Tab key")
 	}
+	// Import is offered next to Let's Encrypt and EAB in the Add provider dialog, and opens the import dialog
+	if !regexp.MustCompile(`value: 'import' \}, 'Import an existing certificate`).MatchString(get("/app.js")) {
+		t.Error("the Add provider dialog must offer Import an existing certificate beside Let's Encrypt and EAB")
+	}
 }

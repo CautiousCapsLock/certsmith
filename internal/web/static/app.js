@@ -1205,8 +1205,11 @@ function providerForm(p, authority) {
 
   const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, p.name);
   const authSel = h('select', { disabled: !isNew, title: isNew ? '' : 'The CA of an existing provider cannot be changed: add a new provider instead' },
-    h('option', { value: 'letsencrypt' }, "Let's Encrypt"), h('option', { value: 'eab' }, 'Another CA (External Account Binding)'));
+    h('option', { value: 'letsencrypt' }, "Let's Encrypt"), h('option', { value: 'eab' }, 'Another CA (External Account Binding)'),
+    // not a provider: a certificate somebody else issued is uploaded instead, so this opens the import dialog
+    isNew ? h('option', { value: 'import' }, 'Import an existing certificate (upload files)') : null);
   authSel.value = isEAB(p) ? 'eab' : 'letsencrypt';
+  authSel.addEventListener('change', () => { if (authSel.value === 'import') { closeDialog(); importForm(null); } });
   const authField = h('div', { class: 'field' }, h('label', {}, 'Certificate authority'), authSel);
 
   // ---- the CA, when it is not Let's Encrypt
