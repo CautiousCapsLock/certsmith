@@ -12,6 +12,9 @@
   }
 }
 * { box-sizing: border-box; }
+/* Reserve room for the vertical scrollbar on every page, so switching between a short page and a long
+   one does not change the width of the content. */
+html { overflow-y: scroll; scrollbar-gutter: stable; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
 .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 9px; }

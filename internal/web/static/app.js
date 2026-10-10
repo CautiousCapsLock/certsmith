@@ -85,15 +85,21 @@ function userIsEditing() {
 }
 
 // opts.background marks the automatic timer; refreshes caused by a click always redraw.
+let lastSig = '';
 async function refresh(opts) {
   try {
     const res = await api('GET', '/api/state');
+    // The automatic refresh redraws only when something changed (or once a minute, so "3 h ago" stays true).
+    // A redraw rebuilds the whole page, which is what made it jump while certificates were issuing.
+    const sig = JSON.stringify([res.db, res.me, res.users, res.ui_cert]);
+    const unchanged = sig === lastSig && Date.now() - lastRenderAt < 60000;
+    if (opts && opts.background && unchanged) return;
     S = res.db;
     me = res.me || ''; users = res.users || [];
     uiCert = res.ui_cert || {};
     for (const k of ['dns_providers', 'certificates', 'targets', 'events', 'pending_dns']) S[k] = S[k] || [];
     if (!schema) schema = await api('GET', '/api/schema');
-    if (!modalOpen && !authing && !(opts && opts.background && userIsEditing())) render();
+    if (!modalOpen && !authing && !(opts && opts.background && userIsEditing())) { render(); lastSig = sig; }
   } catch (e) { if (!authing) toast(e.message, true); }
 }
 
@@ -219,7 +225,10 @@ async function boot() {
 // ---- layout ---------------------------------------------------------------------
 const TABS = [['overview', 'Certificates'], ['targets', 'Targets'], ['dns', 'Certificate providers'], ['settings', 'Settings'], ['events', 'Events']];
 
+let lastView = null, lastRenderAt = 0;
 function render() {
+  // The same page redrawn (the automatic refresh): keep the reader's place. A different page starts at the top.
+  const keepY = lastView === view ? window.scrollY : 0;
   document.getElementById('logout-btn').textContent = me ? 'Sign out (' + me + ')' : 'Sign out';
   const nav = document.getElementById('nav');
   nav.replaceChildren(...TABS.map(([id, label]) =>
@@ -227,6 +236,8 @@ function render() {
   const v = document.getElementById('view');
   const fn = { overview: renderOverview, targets: renderTargets, dns: renderDNS, settings: renderSettings, events: renderEvents }[view];
   v.replaceChildren(fn());
+  lastView = view; lastRenderAt = Date.now();
+  window.scrollTo(0, keepY);
 }
 
 // a certificate issued from a different ACME directory than the selected one is replaced by the scheduler
@@ -328,26 +339,38 @@ const callFailed = c => !!c.error || !c.status || (c.answer ? !!c.failed : c.sta
 const usesAPI = kind => ((schema.targets.find(d => d.kind === kind) || {}).calls || []).some(d => d.method !== '-');
 
 const openCalls = new Set(); // targets whose verbose call panel the user has opened
+// What each open panel last showed and where the reader was in it. The page is redrawn every couple of
+// seconds while something runs; without this an open panel went back to "Loading…" (the page shrank and
+// grew again, so the scroll position drifted) and its own scroll position jumped to the end.
+const callState = new Map(); // target id -> { calls, top, follow }
 
 // A collapsed "Verbose" panel with the API calls made to a target, like the ACME log under a certificate.
 function callsPanel(t) {
-  const box = h('pre', { class: 'acmelog' }, 'Loading…');
+  const st = callState.get(t.id) || { calls: null, top: 0, follow: true };
+  callState.set(t.id, st);
+  const box = h('pre', { class: 'acmelog' });
   const d = h('details', { class: 'verbose' }, h('summary', {}, 'Verbose · API calls'), box);
+  // follow the newest line while the reader is at the bottom; otherwise stay where they were
+  const place = () => { box.scrollTop = st.follow ? box.scrollHeight : st.top; };
+  box.addEventListener('scroll', () => { st.top = box.scrollTop; st.follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 4; });
+  const paint = calls => {
+    if (!calls.length) { box.textContent = 'Nothing has been sent to this device yet. Use Test connection or Deploy.'; return; }
+    box.replaceChildren(...calls.map(c => {
+      const line = `${stamp(c.time)}  ${c.op.padEnd(6)}  ${c.detail || c.method + ' ' + c.path}  ->  ${c.status || 'no reply'}`
+        + (c.answer ? '  ' + c.answer : '') + (c.error ? '  ' + c.error : '') + `  (${c.ms} ms)`;
+      return h('div', { class: callFailed(c) ? 'bad' : '' }, line);
+    }));
+  };
   const load = async () => {
     try {
-      const calls = (await api('GET', '/api/targets/' + t.id + '/calls')).calls.slice(-80);
-      if (!calls.length) { box.textContent = 'Nothing has been sent to this device yet. Use Test connection or Deploy.'; return; }
-      box.replaceChildren(...calls.map(c => {
-        const line = `${stamp(c.time)}  ${c.op.padEnd(6)}  ${c.detail || c.method + ' ' + c.path}  ->  ${c.status || 'no reply'}`
-          + (c.answer ? '  ' + c.answer : '') + (c.error ? '  ' + c.error : '') + `  (${c.ms} ms)`;
-        return h('div', { class: callFailed(c) ? 'bad' : '' }, line);
-      }));
-      box.scrollTop = box.scrollHeight; // newest at the bottom, like a log
+      st.calls = (await api('GET', '/api/targets/' + t.id + '/calls')).calls.slice(-80);
+      paint(st.calls); place();
     } catch (e) { box.textContent = e.message; }
   };
+  if (st.calls) paint(st.calls); else box.textContent = 'Loading…';
   d.open = openCalls.has(t.id);
   d.addEventListener('toggle', () => { if (d.open) { openCalls.add(t.id); load(); } else openCalls.delete(t.id); });
-  if (d.open) load();
+  if (d.open) { requestAnimationFrame(place); load(); }
   return d;
 }
 
@@ -377,19 +400,25 @@ function targetRow(t, c) {
 }
 
 // A collapsed "Verbose" panel with the raw ACME log. Meant for troubleshooting.
+const logState = new Map(); // certificate id -> { text, top, follow }, see callState
 function logPanel(c) {
-  const pre = h('pre', { class: 'acmelog' }, 'Loading…');
+  const st = logState.get(c.id) || { text: '', top: 0, follow: true };
+  logState.set(c.id, st);
+  const pre = h('pre', { class: 'acmelog' }, st.text || 'Loading…');
   const d = h('details', { class: 'verbose' }, h('summary', {}, 'Verbose · ACME log'), pre);
+  const place = () => { pre.scrollTop = st.follow ? pre.scrollHeight : st.top; }; // follow the log while it is being written
+  pre.addEventListener('scroll', () => { st.top = pre.scrollTop; st.follow = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4; });
   const load = async () => {
     try {
       const r = await fetch('/api/certs/' + c.id + '/log', { credentials: 'same-origin' });
-      pre.textContent = (await r.text()).trim() || 'No issuance has run yet.';
-      pre.scrollTop = pre.scrollHeight; // follow the log while it is being written
+      st.text = (await r.text()).trim() || 'No issuance has run yet.';
+      pre.textContent = st.text;
+      place();
     } catch (e) { pre.textContent = e.message; }
   };
   d.open = openLogs.has(c.id);
   d.addEventListener('toggle', () => { if (d.open) { openLogs.add(c.id); load(); } else openLogs.delete(c.id); });
-  if (d.open) load();
+  if (d.open) { requestAnimationFrame(place); load(); }
   return h('div', { class: 'logrow' }, d);
 }
 
