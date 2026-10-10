@@ -1,0 +1,52 @@
+[Unit]
+Description=CertSmith certificate automation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=certsmith
+Group=certsmith
+# The listen address and any extra flags live in /etc/certsmith/certsmith.env, which the
+# installer creates once and never overwrites on upgrade. The default below only applies
+# if that file is missing.
+Environment=CERTSMITH_LISTEN=0.0.0.0:443
+EnvironmentFile=-/etc/certsmith/certsmith.env
+ExecStart=/usr/local/bin/certsmith -data /var/lib/certsmith -listen ${CERTSMITH_LISTEN} $CERTSMITH_ARGS
+Restart=on-failure
+RestartSec=5
+# on stop, CertSmith ends running work and removes its DNS challenge records first
+TimeoutStopSec=60
+
+# State lives in /var/lib/certsmith (database, ACME account key, issued keys).
+StateDirectory=certsmith
+StateDirectoryMode=0700
+UMask=0077
+
+# Sandboxing. CertSmith only needs outbound network and its own state directory.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# The only capability: binding a port below 1024 (443). Nothing else is granted.
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

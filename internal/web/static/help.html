@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CertSmith Readme</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="doc">
+
+<h1>CertSmith Readme</h1>
+<p class="sub">Instructions for obtaining certificates, keeping them renewed and deploying them to devices.</p>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#what">What it does</a>
+  <a href="#quickstart">Quick start</a>
+  <a href="#providers">Certificate providers</a>
+  <a href="#certificates">Certificates</a>
+  <a href="#targets">Targets</a>
+  <a href="#status">What the labels mean</a>
+  <a href="#verbose">Logs and API calls</a>
+  <a href="#settings">Settings</a>
+  <a href="#alerts">Alerts</a>
+  <a href="#events">Events</a>
+  <a href="#users">Users</a>
+  <a href="#backup">Backup</a>
+  <a href="#trouble">Troubleshooting</a>
+  <a href="#glossary">Glossary</a>
+</nav>
+
+<h2 id="what">What CertSmith does</h2>
+<p>CertSmith obtains TLS certificates from a certificate authority (CA), keeps them renewed before they expire, and installs them on the devices that use them (firewalls, management servers, hypervisors and so on) through each device's own API. It then connects to those devices to confirm that they are serving the new certificate, and reports any problem.</p>
+<p>Domain ownership is always validated by publishing a temporary DNS record (the <em>DNS-01</em> challenge). This works for host names and for wildcards, and it requires no inbound access to this server.</p>
+
+<div class="flow">
+  <span class="box">Certificate provider<br><small>which CA, and the DNS credentials that prove the names</small></span><span class="arrow">&rarr;</span>
+  <span class="box">Certificate<br><small>names, key type, renewal</small></span><span class="arrow">&rarr;</span>
+  <span class="box">Targets<br><small>the devices that use it</small></span>
+</div>
+
+<figure>
+  <img src="help/overview.jpg" alt="The Certificates page: two certificates, each with the targets that use it">
+  <figcaption>The <strong>Certificates</strong> page. Each certificate shows its expiry and, beneath it, its targets: whether the current certificate has been deployed and which certificate each device is serving.</figcaption>
+</figure>
+
+<h2 id="quickstart">Quick start</h2>
+<ol>
+  <li><strong>Set the account email.</strong> Open <strong>Settings</strong> and enter an address under <em>Let's Encrypt (ACME)</em>. Leave the directory on <em>Production</em> for publicly trusted certificates. Use <em>Staging</em> for testing: it issues untrusted test certificates with relaxed limits.</li>
+  <li><strong>Add a certificate provider.</strong> Open <strong>Certificate providers</strong>, select <strong>Add provider</strong>, keep <em>Let's Encrypt</em>, then choose the DNS provider (for example Cloudflare) and enter its API token. Select <strong>Test DNS challenge</strong> to verify the credentials before continuing.</li>
+  <li><strong>Add a certificate.</strong> On <strong>Certificates</strong>, select <strong>Add certificate</strong>. Enter a name, the domain names (one per line; wildcards such as <code>*.example.com</code> are supported) and the provider.</li>
+  <li><strong>Wait for issuance.</strong> Issuing takes from a few seconds to a few minutes. <em>Verbose &middot; ACME log</em> under the certificate shows its progress.</li>
+  <li><strong>Add a target.</strong> Select <strong>Add target</strong> under the certificate, choose the vendor and type, enter the address and API token, select where the certificate is used, and select <strong>Test connection</strong>.</li>
+  <li><strong>Deploy the first time manually.</strong> The first deployment to a device always requires selecting <strong>Deploy</strong>. Renewals are deployed automatically afterwards.</li>
+  <li><strong>Verify.</strong> The target shows <em>deployed</em> and <em>serving</em>. <strong>Check endpoints</strong> at the top of the page re-checks every device immediately.</li>
+</ol>
+
+<h2 id="providers">Certificate providers</h2>
+<p>A provider defines <strong>the CA that issues the certificate</strong> and <strong>the DNS credentials used to validate domain ownership</strong>. Each certificate is assigned one provider.</p>
+
+<figure>
+  <img src="help/providers.jpg" alt="The Certificate providers page, split into Let's Encrypt and EAB providers">
+  <figcaption>Providers are grouped by certificate authority. The single <strong>Add provider</strong> button opens a dialog that asks which kind to create.</figcaption>
+</figure>
+
+<h3>Let's Encrypt</h3>
+<p>Let's Encrypt issues free certificates. The account email and the directory (production or staging) are set once under <strong>Settings</strong>; a provider needs only DNS credentials.</p>
+<figure>
+  <img src="help/provider-le.jpg" alt="Add certificate provider dialog with Let's Encrypt selected">
+  <figcaption>A Let's Encrypt provider: a name, and the DNS provider with its credentials.</figcaption>
+</figure>
+<p>For Cloudflare, create an API token restricted to the required zones, with the permissions <em>Zone &rarr; DNS &rarr; Edit</em> and <em>Zone &rarr; Zone &rarr; Read</em>. CertSmith creates and removes only the temporary <code>_acme-challenge</code> records.</p>
+
+<h3>Other CAs: External Account Binding (EAB)</h3>
+<p>Some CAs (ZeroSSL, Sectigo, Google Trust Services and others) bind each ACME account to a customer account using a <strong>key ID</strong> and an <strong>HMAC key</strong>, which the CA displays once. Select <em>Another CA (External Account Binding)</em> in the dialog, then:</p>
+<figure>
+  <img src="help/provider-eab.jpg" alt="Add certificate provider dialog for an EAB certificate authority">
+  <figcaption>An EAB provider: select the CA, confirm its directory URL, and enter the key ID and HMAC key.</figcaption>
+</figure>
+<ol>
+  <li>Select the CA. The directory URL is filled in for known CAs and can be edited. Sectigo uses a different URL for each product, so copy the one shown on the account page. For a CA that is not listed, select <em>Another CA</em> and enter its directory URL.</li>
+  <li>Enter the <strong>EAB key ID</strong> and the <strong>HMAC key</strong> exactly as the CA displays them. The HMAC key is stored encrypted and is never shown again.</li>
+  <li>Optionally enter an account email for that CA. If left empty, the address from Settings is used.</li>
+  <li>Select <strong>Check CA account</strong>. CertSmith authenticates to the CA with these credentials (creating the account on first use) and reports the CA's response. No certificate is requested.</li>
+</ol>
+<div class="note"><strong>DNS credentials are required</strong> for these CAs, because names are validated with a DNS challenge. The exception is a CA that validates domains in advance within the customer account (for example Sectigo Certificate Manager). For those, select <em>This CA validates my domains in my account: no DNS credentials</em>. If the CA still requests a challenge, issuance stops with a message stating this.</div>
+<p>The CA of an existing provider cannot be changed; add a new provider instead. A provider that a certificate uses cannot be deleted.</p>
+
+<h2 id="certificates">Certificates</h2>
+<figure>
+  <img src="help/cert-add.jpg" alt="Add certificate dialog">
+  <figcaption>The Add certificate dialog.</figcaption>
+</figure>
+<table class="ref">
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Name</td><td>A descriptive label, such as <em>lab wildcard</em>.</td></tr>
+  <tr><td>Domain names</td><td>One per line. Plain names (<code>fw.example.com</code>) and wildcards (<code>*.example.com</code>) both work. A wildcard does not cover the bare domain: add <code>example.com</code> as well if you need it.</td></tr>
+  <tr><td>Certificate provider</td><td>Which CA issues it, and the DNS credentials used to prove the names. Providers are grouped by CA.</td></tr>
+  <tr><td>Max DNS propagation wait</td><td>Optional upper limit for the wait for the challenge record to appear. If empty, 5 minutes is used. CertSmith continues as soon as the record is visible, so a higher limit adds no delay when DNS is fast.</td></tr>
+  <tr><td>Test DNS challenge</td><td>Creates a temporary TXT record, checks that it can be seen, then removes it. No certificate is requested.</td></tr>
+  <tr><td>Key type</td><td>RSA 2048 is the most widely supported choice for appliances. ECDSA (ec256, ec384) produces smaller certificates and is faster where the device supports it.</td></tr>
+  <tr><td>Renew automatically</td><td>On by default. Renewal happens when fewer than the configured number of days remain (30 by default, under Settings).</td></tr>
+  <tr><td>Enabled</td><td>Disable to stop CertSmith issuing or renewing the certificate without deleting anything.</td></tr>
+</table>
+<ul>
+  <li><strong>Renew now / Issue now</strong> starts an issuance immediately. While issuing, hovering over the button shows <strong>Stop</strong>.</li>
+  <li>Collapse a certificate with the arrow beside its name, or use <strong>Collapse all</strong> at the top. A collapsed certificate still shows its number of targets and an <em>OK</em> or <em>Error</em> status.</li>
+  <li>Changing a certificate's provider to another CA, or changing the Let's Encrypt directory in Settings, <strong>reissues</strong> the certificate from the new source and redeploys it to devices that have been deployed to before.</li>
+  <li>A certificate marked <em>test certificate: not trusted by browsers</em> was issued by the staging directory.</li>
+</ul>
+
+<h2 id="targets">Targets</h2>
+<p>A target is a device or service that uses a certificate. CertSmith talks to it through its API, never by logging in over SSH.</p>
+
+<figure>
+  <img src="help/target-add.jpg" alt="Add target dialog for a FortiGate">
+  <figcaption>Choose the vendor and type first. The form changes to what that device needs.</figcaption>
+</figure>
+<figure>
+  <img src="help/target-places.jpg" alt="FortiGate target: tick boxes for where the certificate is used">
+  <figcaption>For a FortiGate, select every function that should use the certificate. <em>Verify addresses</em> lists additional <code>host:port</code> endpoints to check, for example an SSL VPN on another port.</figcaption>
+</figure>
+
+<h3>Supported targets</h3>
+<table class="ref">
+  <tr><th>Target</th><th>What CertSmith does</th><th>What you need on the device</th></tr>
+  <tr><td><strong>FortiGate</strong> (FortiOS REST)</td><td>Imports the certificate, installs the issuing intermediate CAs so that the full chain is sent, and applies the certificate to each selected function (admin GUI, SSL VPN, captive portal, IPsec phase 1 or custom bindings) with a separate API call. A failed step is rolled back, and older unreferenced copies created by CertSmith are removed.</td><td>A REST API administrator with a profile that can read and write certificates and the ticked objects, restricted to this server's address under <em>Trusted Hosts</em>.</td></tr>
+  <tr><td><strong>FortiManager</strong> and <strong>FortiAnalyzer</strong> (JSON-RPC)</td><td>Uploads the certificate, installs the issuing CAs and sets the certificate as the web administration certificate. The web service restarts when the change takes effect, so a dropped connection at that step is expected and is retried.</td><td>An API administrator (System Settings &rarr; Administrators) with Read-Write on System Settings and an RPC-permitted profile; token authentication needs 7.2.2 or later.</td></tr>
+  <tr><td><strong>Proxmox VE</strong></td><td>Uploads the certificate and key for the node and restarts the web proxy.</td><td>An API token (<code>user@realm!tokenid=secret</code>) allowed to modify that node (<code>Sys.Modify</code>).</td></tr>
+  <tr><td><strong>Webhook</strong></td><td>Sends an HTTP POST with the certificate details as JSON, for systems CertSmith has no plugin for. The private key is included only when that option is enabled.</td><td>An endpoint that accepts the POST. An optional Authorization header value can be set.</td></tr>
+  <tr><td><strong>Local files</strong></td><td>Writes <code>fullchain.pem</code>, <code>cert.pem</code>, <code>chain.pem</code> and <code>key.pem</code> to a directory on this server, and can run a command afterwards (such as a service reload).</td><td>A writable directory. Running a command is switched off unless the server was started with <code>CERTSMITH_ALLOW_COMMANDS=1</code>.</td></tr>
+  <tr><td><strong>Monitor only</strong></td><td>Watches a <code>host:port</code> and alerts on expiry or a wrong certificate. Deploys nothing.</td><td>Nothing.</td></tr>
+  <tr><td><strong>This server</strong></td><td>Replaces the self-signed certificate on CertSmith's own web page. Set it up under <em>Settings &rarr; HTTPS certificate</em>.</td><td>A name for this server that is in the certificate.</td></tr>
+</table>
+
+<h3>Testing, trusting and the first deployment</h3>
+<ol>
+  <li><strong>Test connection</strong> checks the address and the token, and that each selected function can be read. It changes nothing on the device.</li>
+  <li>A device with only its factory self-signed certificate cannot be verified against a CA. CertSmith displays the certificate presented and asks whether to trust that specific certificate. Compare the fingerprint with the one shown on the device where possible.
+    <figure><img src="help/trust.jpg" alt="Trust this device's certificate? dialog"><figcaption>The trust prompt. CertSmith stores the fingerprint of the confirmed certificate. Once a certificate that CertSmith installed is being served, that certificate is trusted as well.</figcaption></figure>
+  </li>
+  <li>The first deployment is always started manually with <strong>Deploy</strong>, because it changes the configuration of a live device. Until then the target shows <em>ready: press Deploy</em>.</li>
+  <li>Afterwards, renewals are deployed automatically. <strong>Pause</strong> suspends automatic deployment (renewals are still issued) and <strong>Resume</strong> restores it. <strong>Redeploy</strong> runs the deployment again manually, for example after a configuration change on the device.</li>
+  <li><strong>Edit &rarr; Delete</strong> removes the target from CertSmith. The certificate remains on the device.</li>
+</ol>
+<div class="note warn"><strong>Trusted Hosts.</strong> FortiGate, FortiManager and FortiAnalyzer API administrators should be restricted to this server's IP address. If this server's address changes, update Trusted Hosts on the devices first, or the next deployment fails with an authorisation error.</div>
+
+<h2 id="status">What the labels mean</h2>
+<table class="ref">
+  <tr><th>Label</th><th>Meaning</th></tr>
+  <tr><td><strong>51 days</strong> (with a bar)</td><td>Time left on the certificate. The colour changes as the renewal window and the alert threshold approach.</td></tr>
+  <tr><td><em>not issued</em> / <em>failed</em> / <em>cancelled</em></td><td>The certificate has not been issued yet, the last attempt failed (the reason is shown, and the ACME log has the detail), or you stopped it.</td></tr>
+  <tr><td><em>waiting for certificate</em></td><td>The target's certificate has not been issued yet.</td></tr>
+  <tr><td><em>ready: press Deploy</em></td><td>A certificate exists and nothing has been deployed to this target yet.</td></tr>
+  <tr><td><em>pending</em></td><td>A new certificate is issued and about to be deployed automatically.</td></tr>
+  <tr><td><em>deployed</em></td><td>The current certificate was installed on the device.</td></tr>
+  <tr><td><em>paused</em> / <em>paused: new certificate waiting</em></td><td>Automatic deployment is paused. Press Resume and anything renewed meanwhile is deployed.</td></tr>
+  <tr><td><em>deploy failed</em></td><td>The last deployment did not complete. The message says why; the <em>Verbose &middot; API calls</em> panel shows the device's answers.</td></tr>
+  <tr><td><em>serving</em></td><td>A live check connected to the address and the device presents the certificate CertSmith deployed.</td></tr>
+  <tr><td><em>serving a different cert</em></td><td>The device answers but presents another certificate. Common causes: the device was not reloaded, a different interface or port serves it, or a load balancer sits in front.</td></tr>
+  <tr><td><em>unreachable</em></td><td>The live check could not connect.</td></tr>
+  <tr><td><em>chain incomplete</em></td><td>The device sent only the certificate, not the intermediate CA, so some clients will not trust it. Redeploy with <em>Install the issuing CA certificates</em> left on (the default).</td></tr>
+  <tr><td><em>NN d left</em></td><td>Days left on the certificate the device is serving.</td></tr>
+  <tr><td><em>monitoring</em> / <em>disabled</em></td><td>A monitor-only target, or a target you switched off.</td></tr>
+</table>
+
+<h2 id="verbose">Logs, API calls, and Check endpoints</h2>
+<h3>Check endpoints</h3>
+<p>The button at the top checks the <strong>certificate that each target is serving</strong>. It connects to the address of every target immediately and reads the certificate the device presents. It reports whether this is the certificate CertSmith deployed, how long remains and whether the chain is complete. The check is read-only: nothing is changed on any device. The same check runs automatically on a schedule (every 15 minutes by default, under <em>Settings &rarr; Renewal &amp; monitoring</em>).</p>
+
+<h3>ACME log</h3>
+<p><em>Verbose &middot; ACME log</em> under each certificate is the full record of the last issuance: which CA, which DNS provider, when the record was published, when it was seen, and the CA's responses. It is the first place to check when issuance fails.</p>
+
+<h3>API calls</h3>
+<p>Every request sent to a device is recorded together with the response. <em>Verbose &middot; API calls</em> under each target lists the most recent requests, newest at the bottom, with failures in red.</p>
+<figure>
+  <img src="help/verbose.jpg" alt="The Verbose API calls panel under a target, listing each request and its answer">
+  <figcaption>Each line shows the time, the purpose (test or deploy), the request, the status and the device's response. FortiManager and FortiAnalyzer return HTTP <code>200</code> and carry the actual result in the response body, so the response text is the relevant part.</figcaption>
+</figure>
+<p>The <strong>API calls</strong> button opens the same history in a larger view, together with a description of <em>every call this kind of target can make</em>, when it is sent, and whether it is read-only or changes the device. Certificates, private keys, tokens and request bodies are never recorded.</p>
+<figure>
+  <img src="help/api-calls.jpg" alt="The API calls dialog: what was sent, and what the plugin sends">
+  <figcaption>The API calls dialog. In this example the red line is the connection closing while the device restarts its web service. CertSmith retried and the following line succeeded.</figcaption>
+</figure>
+
+<h2 id="settings">Settings</h2>
+<figure>
+  <img src="help/settings.jpg" alt="The Settings page">
+  <figcaption>Settings. Changes are applied with <strong>Save settings</strong> at the bottom of the page.</figcaption>
+</figure>
+<table class="ref">
+  <tr><th>Card</th><th>What it controls</th></tr>
+  <tr><td><strong>Let's Encrypt (ACME)</strong></td><td>The directory (<em>Production</em> for publicly trusted certificates, <em>Staging</em> for test certificates, <em>Built-in test CA</em> for demonstrations; certificates from the latter two are not trusted by clients) and the account email. Providers for other CAs are configured under Certificate providers.</td></tr>
+  <tr><td><strong>DNS validation</strong></td><td>How CertSmith confirms that the challenge record is published; applies to every provider. <em>DNS resolvers</em> are optional servers used to locate a zone's nameservers (default port 53; <em>+ Add resolver</em> adds a second). For <em>Record publication check</em>, <em>Automatic</em> queries the zone's nameservers and waits a fixed time instead if it detects that the network intercepts DNS, where answers cannot be trusted. Either behaviour can be forced.</td></tr>
+  <tr><td><strong>Renewal &amp; monitoring</strong></td><td>Renew when fewer than N days remain (30), alert when fewer than N days remain (14), and how often live endpoints are checked (15 minutes).</td></tr>
+  <tr><td><strong>HTTPS certificate</strong></td><td>Shows the certificate this page is served with: the self-signed certificate created by CertSmith, or a certificate from a trusted authority. <strong>Configure SSL certificate</strong> selects one of the managed certificates for the page; CertSmith installs it on the first <em>Deploy</em> and renews it automatically. Not shown when a reverse proxy provides HTTPS.</td></tr>
+  <tr><td><strong>Email alerts</strong>, <strong>Other alerts</strong>, <strong>Alert types</strong></td><td>The channels and which events go to which. See <a href="#alerts">Alerts</a>.</td></tr>
+  <tr><td><strong>Users</strong></td><td>See <a href="#users">Users</a>.</td></tr>
+</table>
+
+<h2 id="alerts">Alerts</h2>
+<p>CertSmith can send alerts for problems and for routine events. <strong>Which events</strong> are sent, and <strong>where</strong>, is selected per event.</p>
+<figure>
+  <img src="help/alerts.jpg" alt="The Alert types card: a table of events with an Email column and a Webhook column of tick boxes">
+  <figcaption>Settings &rarr; <em>Alert types</em>. Each row is an event and each column is a channel. A column header selects or clears every event for that channel.</figcaption>
+</figure>
+<ol>
+  <li><strong>Configure the channels.</strong> <em>Email alerts</em>: enable <em>Send alerts by email</em> and enter the SMTP host, port, security, credentials, from address and recipients. <em>Other alerts</em>: a webhook URL for any endpoint that accepts JSON with a <code>text</code> field (Slack, Mattermost, Microsoft Teams and others). <strong>Send test alert</strong> checks the settings without saving them.</li>
+  <li><strong>Select the events</strong> in <em>Alert types</em>, separately for email and webhook:
+    <ul>
+      <li><em>Certificates</em>: issuance or renewal fails, a certificate is close to expiry, a certificate is issued or renewed.</li>
+      <li><em>Devices</em>: a deployment fails or succeeds, a device cannot be reached, serves a different certificate than the one deployed, sends an incomplete chain, or serves a certificate close to expiry, and when a problem is resolved.</li>
+      <li><em>Administration</em>: a user is created or deleted, a password is changed or reset, settings are changed.</li>
+    </ul>
+  </li>
+</ol>
+<ul>
+  <li>A problem is sent when it first appears and repeated once a day while it persists, not on every check.</li>
+  <li>Until a selection is saved, every problem is sent to every configured channel and nothing else is sent (the behaviour of earlier versions).</li>
+  <li>CertSmith does not revoke certificates, so there is no revocation alert.</li>
+</ul>
+
+<h2 id="events">Events</h2>
+<p>The <strong>Events</strong> page has two lists.</p>
+<figure>
+  <img src="help/audit.jpg" alt="The Events page on the Admin audit log tab">
+  <figcaption>The <em>Admin audit log</em>: who did what, to what, and from where.</figcaption>
+</figure>
+<ul>
+  <li><strong>Certificate operations</strong>: what CertSmith itself did: certificates issued and renewed, deployments, live checks, and the alerts raised or cleared.</li>
+  <li><strong>Admin audit log</strong>: what users did in CertSmith: sign-ins (including failed ones), users created or deleted, passwords changed or reset, settings changed (the setting names, never the values), and every provider, certificate and target that was added, changed, deleted, deployed, paused or resumed, with the user and the address they came from.</li>
+</ul>
+<p>Both lists have a filter box that narrows the rows as text is entered, for example by user, action, subject or message.</p>
+<p>The audit log never contains passwords, tokens or keys. Behind a reverse proxy, the address shown is the one the proxy reported (the connection address is shown in brackets); treat it as a hint, because anyone who can reach the server directly could forge that header.</p>
+
+<h2 id="users">Users and passwords</h2>
+<ul>
+  <li>All users listed under <strong>Settings &rarr; Users</strong> can sign in and have full administrative access. There are no roles.</li>
+  <li><strong>Add user</strong> creates another account. <strong>Reset password</strong> and <strong>Delete</strong> apply to other users and require the current user's password for confirmation.</li>
+  <li>Change the signed-in user's password in the <em>Your password</em> section of the same card. Doing so ends the user's other sessions.</li>
+  <li>Repeated failed sign-ins from one address or for one user are rate-limited automatically. Every sign-in, successful or not, is recorded in the <a href="#events">audit log</a>.</li>
+  <li>Scripts can call the API with HTTP Basic authentication using any user.</li>
+</ul>
+<div class="note"><strong>Lost the only administrator password.</strong> On the server, stop the service and run <code>certsmith reset-admin -data /var/lib/certsmith</code> as the service user. The command sets a new random password and prints it. With <code>-wipe</code>, all users are removed and the first-run setup appears again.</div>
+
+<h2 id="backup">Backing up</h2>
+<p>Everything CertSmith knows is in its data directory, normally <code>/var/lib/certsmith</code>. Back up the whole directory and store the backup securely, because it contains private keys.</p>
+<table class="ref">
+  <tr><th>File or folder</th><th>Contains</th></tr>
+  <tr><td><code>db.json</code></td><td>Providers, certificates, targets, settings and users (secrets inside are encrypted).</td></tr>
+  <tr><td><code>master.key</code></td><td>The key that decrypts every stored token and password. <strong>Without it, the stored credentials cannot be recovered.</strong> Keep it with the backup.</td></tr>
+  <tr><td><code>session.key</code></td><td>Signs login sessions. Losing it only signs everyone out.</td></tr>
+  <tr><td><code>acme/</code>, <code>certs/</code>, <code>targets/</code>, <code>ui-tls/</code></td><td>ACME account keys, issued certificates and keys, the API call history, and this page's own certificate.</td></tr>
+</table>
+
+<h2 id="trouble">Troubleshooting</h2>
+
+<h3>Issuance waits a long time, then says the record was not found</h3>
+<p>CertSmith publishes the record, then queries the zone's nameservers to confirm that it is served. On a network that intercepts DNS, the answers come from a cache and can be stale for minutes. Leave <em>Record publication check</em> on <em>Automatic</em> (it detects interception and waits a fixed time instead), or select <em>Always wait a fixed time</em> and increase <em>Fixed wait time</em>. The ACME log states which mode was used.</p>
+
+<h3>The DNS provider rejects the credentials, or cannot find the zone</h3>
+<p>The token needs permission to edit DNS records and to read the zone, for the zone that contains the domain. Use <strong>Test DNS challenge</strong> on the provider; it tells you which step fails.</p>
+
+<h3>Rate limits</h3>
+<p>Let's Encrypt limits repeated issuances for the same names. While testing, set the directory to <em>Staging</em> in Settings, then back to <em>Production</em> (certificates are reissued automatically).</p>
+
+<h3>The device's certificate is "not trusted" when adding a target</h3>
+<p>This is expected for a new appliance with its factory certificate. CertSmith displays the certificate and asks whether to trust that specific certificate (see <a href="#targets">Targets</a>).</p>
+
+<h3>401 or 403 from a device</h3>
+<p>The token is incorrect or expired, or the device rejects this server's address. Check the API administrator's profile and its <em>Trusted Hosts</em>.</p>
+
+<h3>Deployed, but browsers say the chain is incomplete</h3>
+<p>The device does not have the intermediate CA. CertSmith installs it by default (<em>Install the issuing CA certificates</em> under the target's Advanced settings). Redeploy; the <em>chain incomplete</em> label clears after the next check.</p>
+
+<h3>"Object does not exist" or an <code>EOF</code> in the API call log</h3>
+<p>Both are normal for FortiManager and FortiAnalyzer: the first is the check for whether a certificate is already uploaded, and the second is the web service restarting when the new certificate takes effect. CertSmith retries and the next line shows success. They only matter when the deployment as a whole fails.</p>
+
+<h3>Every target says "waiting for the first live check"</h3>
+<p>Select <strong>Check endpoints</strong>. Otherwise live checks run on the schedule set in Settings.</p>
+
+<h3>A device cannot be reached from this server</h3>
+<p>This server needs outbound access to each device's API address and port, to the CA, to your DNS provider, and to the nameservers it checks. A firewall between this server and the device is the usual cause.</p>
+
+<h2 id="glossary">Glossary</h2>
+<table class="ref">
+  <tr><td><strong>ACME</strong></td><td>The protocol CAs use to issue certificates automatically.</td></tr>
+  <tr><td><strong>DNS-01</strong></td><td>Proving you own a name by publishing a specific TXT record at <code>_acme-challenge.&lt;name&gt;</code>.</td></tr>
+  <tr><td><strong>Wildcard</strong></td><td>A certificate for <code>*.example.com</code>, valid for any single label under the domain.</td></tr>
+  <tr><td><strong>EAB</strong></td><td>External Account Binding: a key ID and HMAC key from a CA that tie your ACME account to your customer account there.</td></tr>
+  <tr><td><strong>Intermediate CA</strong></td><td>The CA certificate that signed yours. Devices must send it with the certificate or some clients cannot build the chain.</td></tr>
+  <tr><td><strong>Staging</strong></td><td>A Let's Encrypt test directory that issues untrusted certificates with relaxed limits.</td></tr>
+  <tr><td><strong>Trusted Hosts</strong></td><td>A device setting that limits which addresses an administrator account may sign in from.</td></tr>
+</table>
+
+</main>
+</body>
+</html>

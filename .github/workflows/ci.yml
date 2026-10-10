@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Runs on main are never cancelled by a later push. Only a superseded pull request run is.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "needs gofmt:"; echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: Installer tests (sh and dash)
+        run: |
+          sudo apt-get install -y -qq dash >/dev/null 2>&1 || true
+          sh scripts/test-install.sh
+
+      - name: Online installer tests (sh and dash)
+        run: sh scripts/test-get.sh
+
+      - name: Every option, flag and variable is documented
+        run: sh scripts/check-docs.sh
+
+      - name: No private addresses in source
+        run: sh scripts/check-private-addrs.sh
+        env:
+          CHECK_EXTRA_PATTERN: ${{ vars.CHECK_EXTRA_PATTERN }}
+
+      - name: Static builds (amd64, arm64)
+        run: |
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o /dev/null ./cmd/certsmith
+          done
+
+  # Separate job so a newly published advisory is visible without blocking unrelated work.
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

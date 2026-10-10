@@ -1,0 +1,90 @@
+#!/bin/sh
+# CertSmith online installer. Downloads a release, verifies its checksum, and runs the
+# installer that is packaged with it.
+#
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+#
+# Installer options are passed through after the script:
+#
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
+#
+# Environment:
+#   CERTSMITH_VERSION   release to install, for example v0.12.0 (default: the latest release)
+#   CERTSMITH_REPO      owner/name of the repository (default: CautiousCapsLock/certsmith)
+#
+# The checksum comes from the same release as the download, so it detects a corrupted or
+# incomplete download. It does not authenticate the publisher; read this script, and the
+# installer in the release, before running them as root.
+set -eu
+
+REPO="${CERTSMITH_REPO:-CautiousCapsLock/certsmith}"
+VERSION="${CERTSMITH_VERSION:-}"
+BASE="${CERTSMITH_BASE_URL:-https://github.com}"   # a test hook; leave unset
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+have curl || die "curl is required"
+have tar  || die "tar is required"
+[ "$(uname -s)" = Linux ] || die "CertSmith installs on Linux with systemd; this system is $(uname -s)"
+
+case "$(uname -m)" in
+  x86_64|amd64)  ARCH=amd64 ;;
+  aarch64|arm64) ARCH=arm64 ;;
+  *) die "unsupported architecture: $(uname -m) (amd64 and arm64 are published)" ;;
+esac
+
+# Which release: the one asked for, or the one GitHub redirects /releases/latest to.
+if [ -z "$VERSION" ]; then
+  url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$BASE/$REPO/releases/latest") \
+    || die "could not reach $BASE/$REPO/releases/latest"
+  VERSION="${url##*/}"
+fi
+case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac
+case "$VERSION" in
+  v[0-9]*.[0-9]*.[0-9]*) ;;
+  *) die "no published release found for $REPO (got \"$VERSION\"). Check that the repository is public and has a release." ;;
+esac
+case "$VERSION" in *[!0-9A-Za-z.+_-]*) die "unexpected characters in version: $VERSION" ;; esac
+
+num="${VERSION#v}"
+PKG="certsmith-${num}-linux-${ARCH}"
+REL="$BASE/$REPO/releases/download/$VERSION"
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+
+say "CertSmith $VERSION for linux/$ARCH"
+say "Downloading $PKG.tar.gz ..."
+curl -fsSL -o "$TMP/$PKG.tar.gz" "$REL/$PKG.tar.gz" || die "download failed: $REL/$PKG.tar.gz"
+curl -fsSL -o "$TMP/SHA256SUMS" "$REL/SHA256SUMS"   || die "download failed: $REL/SHA256SUMS"
+
+# Verify before anything is unpacked or run.
+want=$(awk -v n="$PKG.tar.gz" '{ f = $2; sub(/^\*/, "", f); sub(/^\.\//, "", f); if (f == n) { print $1; exit } }' "$TMP/SHA256SUMS")
+[ -n "$want" ] || die "SHA256SUMS has no entry for $PKG.tar.gz; nothing was installed"
+if   have sha256sum; then got=$(sha256sum "$TMP/$PKG.tar.gz" | awk '{ print $1 }')
+elif have shasum;    then got=$(shasum -a 256 "$TMP/$PKG.tar.gz" | awk '{ print $1 }')
+elif have openssl;   then got=$(openssl dgst -sha256 "$TMP/$PKG.tar.gz" | awk '{ print $NF }')
+else die "no sha256sum, shasum or openssl to verify the download with"
+fi
+[ "$got" = "$want" ] || die "checksum mismatch for $PKG.tar.gz (expected $want, got $got); nothing was installed"
+say "Checksum verified."
+
+# The archive must unpack only into its own directory.
+if tar tzf "$TMP/$PKG.tar.gz" | grep -qv "^$PKG/"; then
+  die "the archive contains paths outside $PKG/; nothing was installed"
+fi
+tar xzf "$TMP/$PKG.tar.gz" -C "$TMP"
+[ -f "$TMP/$PKG/install.sh" ] || die "the archive has no install.sh"
+
+# The installer needs root.
+cd "$TMP/$PKG"
+if [ "$(id -u)" -eq 0 ]; then
+  sh ./install.sh "$@"
+elif have sudo; then
+  say "Running the installer with sudo ..."
+  sudo sh ./install.sh "$@"
+else
+  die "the installer must run as root, and sudo is not available"
+fi

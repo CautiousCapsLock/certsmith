@@ -1,0 +1,25 @@
+# build output
+/dist/
+/out/
+/stage/
+
+# runtime state: never commit keys, the database or issued certificates
+/data/
+*.pem
+*.key
+db.json
+master.key
+session.key
+.env
+.env.*
+
+# go
+*.test
+*.out
+coverage.*
+
+# editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
