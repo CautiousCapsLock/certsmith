@@ -195,6 +195,14 @@ suite() {
   STUB_ADDRS="203.0.113.9" STUB_LISTEN=443 run
   case "$OUT" in *"public address"*) pass "warns about a public address" ;; *) fail "warns about a public address" "$OUT" ;; esac
 
+  newcase public6
+  STUB_ADDRS="2a0e:1d47:cc85:c400:be24:11ff:fed1:f2d8 fe80::1" STUB_LISTEN=443 run
+  case "$OUT" in *"public address"*) pass "warns about a global IPv6 address" ;; *) fail "warns about a global IPv6 address" "$OUT" ;; esac
+
+  newcase private6
+  STUB_ADDRS="fd12:3456:789a::1 fe80::1 ::1" STUB_LISTEN=443 run
+  case "$OUT" in *"public address"*) fail "no warning for private and link-local IPv6" "$OUT" ;; *) pass "no warning for private and link-local IPv6" ;; esac
+
   newcase badallow
   run --allow-from "1.2.3.4;reboot"
   [ "$RC" -ne 0 ] && ! logged "systemctl" && pass "rejects a hostile --allow-from before doing anything" || fail "rejects a hostile --allow-from before doing anything"

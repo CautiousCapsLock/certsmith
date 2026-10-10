@@ -111,7 +111,7 @@ Run the installer from a newer release, or run the quick install command again. 
 | `--yes`, `-y` | Do not ask for confirmation. |
 | `--help`, `-h` | Print the option list and exit. |
 
-Options accept `--option value` or `--option=value`. If the host has a public address, the installer warns that the web interface is reachable from the Internet. Use `--allow-from` to restrict it.
+Options accept `--option value` or `--option=value`. If the host has a public IPv4 or global IPv6 address, the installer warns that the web interface may be reachable from the Internet. Use `--allow-from` to restrict it.
 
 ## First use
 

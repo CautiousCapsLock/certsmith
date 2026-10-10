@@ -461,7 +461,10 @@ fi
 _public=""
 for _a in $ADDRS; do
   case "$_a" in
-    *:*|10.*|192.168.*|169.254.*|127.*) ;;
+    # IPv6: global unicast is 2000::/3 (first digit 2 or 3). fe80:: (link-local), fc00::/7
+    # (private) and ::1 (loopback) are not reachable from the Internet.
+    *:*) case "$_a" in 2*|3*) _public="$_public $_a" ;; esac ;;
+    10.*|192.168.*|169.254.*|127.*) ;;
     172.1[6-9].*|172.2[0-9].*|172.3[01].*) ;;
     100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) ;;
     *) _public="$_public $_a" ;;

@@ -71,7 +71,7 @@ Behaviour that is not an option:
 - **Keeps the current SSH session.** When it turns the firewall on, the SSH ports in use are allowed first.
 - **Keeps the listen address.** A first-release unit file with inline `-listen`/`-no-tls` flags is migrated into the settings file.
 - **Rolls back.** If the service is not listening within the wait time, the previous program, unit file and settings file are restored.
-- **Warns** when the host has a public IPv4 address and `--allow-from` was not given.
+- **Warns** when the host has a public IPv4 address or a global IPv6 address (`2000::/3`) and `--allow-from` was not given. The firewall rule for a port applies to both IPv4 and IPv6 on a host where `ufw` has IPv6 enabled, which is the Ubuntu default.
 
 | Variable | Default | Purpose |
 |---|---|---|
