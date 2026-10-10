@@ -1,0 +1,31 @@
+# Weekly pull requests for newer direct modules and newer Action versions.
+# Indirect modules are deliberately not bulk-upgraded: see docs/DEPENDENCIES.md.
+# A Dependabot pull request fails the notices check until `go run ./scripts/notices` is run on its branch.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    allow:
+      - dependency-type: direct
+    groups:
+      direct-modules:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies"]

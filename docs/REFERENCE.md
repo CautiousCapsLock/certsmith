@@ -175,4 +175,5 @@ The local-files target runs its command with the daemon's environment plus:
 | `scripts/test-get.sh` | Tests `get.sh` with a stubbed network, under `sh` and `dash`. |
 | `scripts/check-private-addrs.sh` | Fails if a private-range IPv4 address appears in tracked source (tests and Markdown excepted). |
 | `scripts/check-docs.sh` | Fails if an option, flag or environment variable in the code is not documented. |
+| `scripts/update-deps.sh check` / `apply` | Lists newer dependency versions and newer major versions of direct modules; or bumps the direct modules to the latest release and everything else to the latest patch, regenerates the notices, and runs the build, vet, tests and `govulncheck`. See [DEPENDENCIES.md](DEPENDENCIES.md). |
 | `go run ./scripts/notices` | Regenerates `internal/web/static/THIRD_PARTY_NOTICES.txt` from the licence files of the modules compiled into the binary. With `-check` it fails if the file is out of date. It also fails when a dependency's licence is not on the allowlist (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0). |

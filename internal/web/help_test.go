@@ -47,21 +47,31 @@ func TestTheReadmePageAndAllItsImagesAreServed(t *testing.T) {
 	}
 }
 
-func TestTheHeaderHasTheReadmeButtonAndAnExplainedCheckEndpointsButton(t *testing.T) {
+func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpointsButton(t *testing.T) {
 	ts, _ := newTestServer(t)
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
+	get := func(path string) string {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
 	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	page := string(b)
+	page := get("/")
 	if !strings.Contains(page, `id="readme-btn"`) {
 		t.Error("no Readme button in the header")
 	}
-	m := regexp.MustCompile(`id="probe-btn"[^>]*title="([^"]+)"`).FindStringSubmatch(page)
+	if strings.Contains(page, `id="probe-btn"`) {
+		t.Error("Check endpoints belongs on the Certificates page, not in the header")
+	}
+	m := regexp.MustCompile(`id: 'probe-btn',[^}]*?title: '([^']+)'`).FindStringSubmatch(get("/app.js"))
 	// short enough to read at a glance, and it says what is checked and that nothing changes
 	if m == nil || len(m[1]) < 40 || len(m[1]) > 160 || !strings.Contains(m[1], "Changes nothing") || !strings.Contains(m[1], "certificate") {
 		t.Errorf("the Check endpoints tooltip must explain what it does, briefly: %v", m)
+	}
+	// Tab goes username, password, repeat, OK: the Show button must not be a tab stop
+	if !regexp.MustCompile(`class: 'reveal'[^}]*tabindex: '-1'`).MatchString(get("/app.js")) {
+		t.Error("the Show button on password fields must be skipped by the Tab key")
 	}
 }

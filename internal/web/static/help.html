@@ -53,7 +53,7 @@
   <li><strong>Wait for issuance.</strong> Issuing takes from a few seconds to a few minutes. <em>Verbose &middot; ACME log</em> under the certificate shows its progress.</li>
   <li><strong>Add a target.</strong> Select <strong>Add target</strong> under the certificate, choose the vendor and type, enter the address and API token, select where the certificate is used, and select <strong>Test connection</strong>.</li>
   <li><strong>Deploy the first time manually.</strong> The first deployment to a device always requires selecting <strong>Deploy</strong>. Renewals are deployed automatically afterwards.</li>
-  <li><strong>Verify.</strong> The target shows <em>deployed</em> and <em>serving</em>. <strong>Check endpoints</strong> at the top of the page re-checks every device immediately.</li>
+  <li><strong>Verify.</strong> The target shows <em>deployed</em> and <em>serving</em>. <strong>Check endpoints</strong> on the Certificates page re-checks every device immediately.</li>
 </ol>
 
 <h2 id="providers">Certificate providers</h2>
@@ -181,7 +181,7 @@
 
 <h2 id="verbose">Logs, API calls, and Check endpoints</h2>
 <h3>Check endpoints</h3>
-<p>The button at the top checks the <strong>certificate that each target is serving</strong>. It connects to the address of every target immediately and reads the certificate the device presents. It reports whether this is the certificate CertSmith deployed, how long remains and whether the chain is complete. The check is read-only: nothing is changed on any device. The same check runs automatically on a schedule (every 15 minutes by default, under <em>Settings &rarr; Renewal &amp; monitoring</em>).</p>
+<p>The <strong>Check endpoints</strong> button on the Certificates page (beside <strong>Collapse all</strong>) checks the <strong>certificate that each target is serving</strong>. It connects to the address of every target immediately and reads the certificate the device presents. It reports whether this is the certificate CertSmith deployed, how long remains and whether the chain is complete. The check is read-only: nothing is changed on any device. The same check runs automatically on a schedule (every 15 minutes by default, under <em>Settings &rarr; Renewal &amp; monitoring</em>).</p>
 
 <h3>ACME log</h3>
 <p><em>Verbose &middot; ACME log</em> under each certificate is the full record of the last issuance: which CA, which DNS provider, when the record was published, when it was seen, and the CA's responses. It is the first place to check when issuance fails.</p>
@@ -258,7 +258,7 @@
 <h2 id="users">Users and passwords</h2>
 <ul>
   <li>All users listed under <strong>Settings &rarr; Users</strong> can sign in and have full administrative access. There are no roles.</li>
-  <li><strong>Add user</strong> creates another account. <strong>Reset password</strong> and <strong>Delete</strong> apply to other users and require the current user's password for confirmation.</li>
+  <li><strong>Add user</strong> asks for a username and the new user's password twice. <strong>Reset password</strong> asks for the new password twice. Both, and <strong>Delete</strong>, also ask for <em>your own</em> password to confirm, so that a signed-in browser alone cannot create, change or remove accounts.</li>
   <li>Change the signed-in user's password in the <em>Your password</em> section of the same card. Doing so ends the user's other sessions.</li>
   <li>Repeated failed sign-ins from one address or for one user are rate-limited automatically. Every sign-in, successful or not, is recorded in the <a href="#events">audit log</a>.</li>
   <li>Scripts can call the API with HTTP Basic authentication using any user.</li>
@@ -299,7 +299,7 @@
 <p>Both are normal for FortiManager and FortiAnalyzer: the first is the check for whether a certificate is already uploaded, and the second is the web service restarting when the new certificate takes effect. CertSmith retries and the next line shows success. They only matter when the deployment as a whole fails.</p>
 
 <h3>Every target says "waiting for the first live check"</h3>
-<p>Select <strong>Check endpoints</strong>. Otherwise live checks run on the schedule set in Settings.</p>
+<p>Select <strong>Check endpoints</strong> on the Certificates page. Otherwise live checks run on the schedule set in Settings.</p>
 
 <h3>A device cannot be reached from this server</h3>
 <p>This server needs outbound access to each device's API address and port, to the CA, to your DNS provider, and to the nameservers it checks. A firewall between this server and the device is the usual cause.</p>

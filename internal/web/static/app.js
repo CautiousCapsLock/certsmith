@@ -541,6 +541,8 @@ function renderOverview() {
       h('div', { class: 'row' },
         certs.length > 1 ? h('button', { class: 'btn ghost', onclick: () => setCollapsed(certs.map(c => c.id), !certs.every(c => collapsedCerts.has(c.id))) },
           certs.every(c => collapsedCerts.has(c.id)) ? 'Expand all' : 'Collapse all') : null,
+        h('button', { id: 'probe-btn', class: 'btn', title: 'Connects to every target now and checks the certificate it is serving: the right one, still valid, chain complete. Changes nothing.',
+          onclick: () => act('POST', '/api/probe', 'Checking endpoints…') }, 'Check endpoints'),
         h('button', { class: 'btn', title: 'Add a certificate that somebody else issued, from a PKCS#12 or PEM file', onclick: () => importForm(null) }, 'Import certificate'),
         h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate'))),
     // spread: the native append() would print the text "null" for an absent banner
@@ -744,7 +746,7 @@ const MASK = '********';
 // Wraps a password input with a Show/Hide button. The button is only offered while the
 // box holds something the person typed: a saved secret (the mask) has nothing to reveal.
 function revealWrap(input) {
-  const btn = h('button', { type: 'button', class: 'reveal', 'aria-pressed': 'false', 'aria-label': 'Show what I typed', tabindex: '0' }, 'Show');
+  const btn = h('button', { type: 'button', class: 'reveal', 'aria-pressed': 'false', 'aria-label': 'Show what I typed', tabindex: '-1' }, 'Show');
   const paint = () => { btn.style.display = input.value === MASK ? 'none' : ''; };
   btn.addEventListener('click', () => {
     const showing = input.type === 'text';
@@ -1448,22 +1450,30 @@ function targetForm(t, presetCert, presetKind) {
 // ---- users -------------------------------------------------------------------------------
 function addUserForm() {
   const u = fieldEl({ key: 'u', label: 'Username', type: 'text', required: true }, '');
-  const p = fieldEl({ key: 'p', label: 'Password (12+ characters)', type: 'password', required: true, autocomplete: 'new-password' }, '');
-  const c = fieldEl({ key: 'c', label: 'Your password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
-  modal('Add user', h('div', {}, u.wrap, p.wrap, c.wrap), close => [h('div', { class: 'grow' }),
+  const p = fieldEl({ key: 'p', label: 'New user\'s password (minimum 12 characters)', type: 'password', required: true, autocomplete: 'new-password' }, '');
+  const p2 = fieldEl({ key: 'p2', label: 'Repeat the new user\'s password', type: 'password', required: true, autocomplete: 'new-password' }, '');
+  const c = fieldEl({ key: 'c', label: 'Your own password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
+  modal('Add user', h('div', {}, u.wrap, p.wrap, p2.wrap,
+    h('div', { class: 'sect' }, 'Confirm that it is you'),
+    h('p', { class: 'meta', style: 'margin:0 0 12px' }, 'Adding a user asks for the password of the account you are signed in with, so a signed-in browser alone cannot create accounts.'),
+    c.wrap), close => [h('div', { class: 'grow' }),
     h('button', { class: 'btn', onclick: close }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+      if (p.get() !== p2.get()) throw new Error('The two passwords for the new user do not match');
       await api('POST', '/api/users', { username: u.get(), password: p.get(), confirm: c.get() });
       close(); toast('User added');
     }) }, 'Add user')]);
 }
 
 function resetUserForm(name) {
-  const p = fieldEl({ key: 'p', label: 'New password for ' + name + ' (12+ characters)', type: 'password', required: true, autocomplete: 'new-password' }, '');
-  const c = fieldEl({ key: 'c', label: 'Your password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
-  modal('Reset password', h('div', {}, p.wrap, c.wrap), close => [h('div', { class: 'grow' }),
+  const p = fieldEl({ key: 'p', label: 'New password for ' + name + ' (minimum 12 characters)', type: 'password', required: true, autocomplete: 'new-password' }, '');
+  const p2 = fieldEl({ key: 'p2', label: 'Repeat the new password', type: 'password', required: true, autocomplete: 'new-password' }, '');
+  const c = fieldEl({ key: 'c', label: 'Your own password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
+  modal('Reset password', h('div', {}, p.wrap, p2.wrap,
+    h('div', { class: 'sect' }, 'Confirm that it is you'), c.wrap), close => [h('div', { class: 'grow' }),
     h('button', { class: 'btn', onclick: close }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+      if (p.get() !== p2.get()) throw new Error('The two new passwords do not match');
       await api('POST', '/api/users/' + encodeURIComponent(name) + '/password', { password: p.get(), confirm: c.get() });
       close(); toast(name + ' was signed out and must use the new password');
     }) }, 'Reset password')]);
@@ -1774,7 +1784,6 @@ async function openReadme() {
 }
 
 // ---- boot ---------------------------------------------------------------------------------
-document.getElementById('probe-btn').addEventListener('click', () => act('POST', '/api/probe', 'Checking endpoints…'));
 document.getElementById('readme-btn').addEventListener('click', openReadme);
 document.getElementById('logout-btn').addEventListener('click', async () => {
   try { await api('POST', '/api/logout'); } catch (_) { /* already signed out */ }

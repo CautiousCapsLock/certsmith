@@ -206,8 +206,8 @@ To run without installing: `go run ./cmd/certsmith -data ./data -listen 127.0.0.
 | `internal/certimport` | Reading and validating an imported certificate (PKCS#12 or PEM). |
 | `internal/store`, `internal/secret`, `internal/model` | Persistence, encryption of stored secrets and data types. |
 | `deploy/` | systemd unit and the installer packaged with each release. |
-| `docs/` | [Command-line reference](docs/REFERENCE.md), and plans for the [installer and appliance](docs/APPLIANCE.md) and [target plugins](docs/PLUGINS.md). |
-| `scripts/` | Repository checks, the installer tests, and `scripts/notices`, which generates the third-party licence notices. |
+| `docs/` | [Command-line reference](docs/REFERENCE.md), the [dependency policy](docs/DEPENDENCIES.md), and plans for the [installer and appliance](docs/APPLIANCE.md), [target plugins](docs/PLUGINS.md) and [DNS-PERSIST-01](docs/DNS-PERSIST.md). |
+| `scripts/` | Repository checks, the installer tests, `scripts/update-deps.sh` (dependency updates) and `scripts/notices`, which generates the third-party licence notices. |
 
 ## Releases
 
