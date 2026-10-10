@@ -19,6 +19,7 @@ const (
 	UserDeleted      = "admin.user_deleted"
 	PasswordChanged  = "admin.password_changed"
 	SettingsChanged  = "admin.settings_changed"
+	UICertRenewed    = "admin.ui_cert_renewed"
 )
 
 // Type describes one alert type for the settings page.
@@ -47,6 +48,7 @@ var Types = []Type{
 	{UserDeleted, "Administration", "A user account is deleted", false},
 	{PasswordChanged, "Administration", "A password is changed or reset", false},
 	{SettingsChanged, "Administration", "Settings are changed", false},
+	{UICertRenewed, "Administration", "The web page's self-signed certificate is regenerated or renewed", false},
 }
 
 // Known reports whether id is an alert type.

@@ -71,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
+	mux.HandleFunc("POST /api/ui-cert/regenerate", s.regenerateUICert)
 	mux.HandleFunc("GET /api/schema", s.schema)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/test-alert", s.testAlert)

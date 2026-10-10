@@ -163,6 +163,7 @@ The local-files target runs its command with the daemon's environment plus:
 | `/etc/certsmith/certsmith.env` | `CERTSMITH_LISTEN` and `CERTSMITH_ARGS`. Created once; never overwritten by an upgrade. |
 | `/etc/certsmith/firewall.rules` | The firewall rules the installer added, so `--uninstall` removes only those. |
 | `/var/lib/certsmith/` | State: `db.json`, `master.key`, `session.key`, `acme/`, `certs/`, `targets/`, `ui-tls/`. |
+| `/var/lib/certsmith/ui-tls/` | The web interface's certificate (`fullchain.pem`, `key.pem`). The self-signed one CertSmith creates is valid for five years, covers the host name and addresses present when it was made, is renewed 30 days before it expires, and can be regenerated in Settings. A certificate that CertSmith did not create is never replaced by either. |
 | `/etc/sysctl.d/90-certsmith-hardening.conf` | Written only with `--harden`. |
 | `/etc/apt/apt.conf.d/20auto-upgrades` | Written only when `unattended-upgrades` was not already configured. |
 

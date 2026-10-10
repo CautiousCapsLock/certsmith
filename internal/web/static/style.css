@@ -124,6 +124,16 @@ body.authing .top { display: none; }
 body.authing .appfoot { display: none; }
 .appfoot { max-width: 1180px; margin: 0 auto; padding: 4px 20px 28px; color: var(--muted); font-size: 12.5px; }
 .appfoot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* Settings sections: a bar per group that folds. The summary keeps the native triangle, so it is the same
+   size and colour as the arrows of the Verbose panels; only the title is larger. */
+.setgroup { margin: 0 0 14px; }
+details.verbose.setgroup > summary { display: list-item; list-style-position: inside; width: auto; padding: 11px 14px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted); }
+details.verbose.setgroup > summary:hover { border-color: var(--muted); }
+.setgroup .gtitle { font-size: 15px; font-weight: 700; color: var(--text); }
+.setgroup .ghint { margin-left: 10px; }
+.setgroup > .gbody { margin-top: 12px; }
+.setgroup:not([open]) { margin-bottom: 10px; }
 /* Settings > Software */
 .swline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 6px; }
 .swline a { color: var(--accent); }

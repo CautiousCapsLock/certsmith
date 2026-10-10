@@ -86,7 +86,7 @@ sudo sh install.sh
 
 ### New installation
 
-- The web interface listens on `0.0.0.0:443` with a self-signed certificate. Port 80 redirects to HTTPS.
+- The web interface listens on `0.0.0.0:443` with a self-signed certificate. CertSmith renews that certificate by itself 30 days before it expires, and Settings can regenerate it at any time. Port 80 redirects to HTTPS.
 - Ports 80 and 443 are opened in the host firewall (`ufw`). The SSH port in use is kept open to any source, as it was before the firewall was enabled; narrow it with `ufw` when you have confirmed access.
 - Automatic security updates are enabled (`unattended-upgrades`, without automatic reboot).
 - A dedicated `certsmith` service account runs the daemon under a hardened systemd unit. The only capability granted is binding to ports below 1024.

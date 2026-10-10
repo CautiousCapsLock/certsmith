@@ -453,6 +453,10 @@ function issuingTooltip(c) {
 const collapsedCerts = (() => {
   try { return new Set(JSON.parse(localStorage.getItem('certsmith.collapsed') || '[]')); } catch (_) { return new Set(); }
 })();
+// Which Settings sections are folded. Remembered in this browser only, like the certificate folds.
+const settingsFolded = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem('certsmith.settings.folded') || '[]')); } catch (_) { return new Set(); }
+})();
 function setCollapsed(ids, collapsed) {
   ids.forEach(id => collapsed ? collapsedCerts.add(id) : collapsedCerts.delete(id));
   try { localStorage.setItem('certsmith.collapsed', JSON.stringify([...collapsedCerts])); } catch (_) { /* not remembered */ }
@@ -659,6 +663,7 @@ const AUDIT_LABELS = {
   'user.setup': 'First user created', 'user.create': 'User created', 'user.delete': 'User deleted',
   'user.password_change': 'Changed own password', 'user.password_reset': 'Reset a password',
   'settings.update': 'Settings changed',
+  'ui_cert.regenerate': 'Web page certificate regenerated', 'ui_cert.renew': 'Web page certificate renewed automatically',
   'provider.create': 'Provider added', 'provider.update': 'Provider changed', 'provider.delete': 'Provider deleted',
   'provider.dns_test': 'DNS challenge tested', 'provider.check_account': 'CA account checked',
   'cert.create': 'Certificate added', 'cert.update': 'Certificate changed', 'cert.delete': 'Certificate deleted',
@@ -1143,9 +1148,8 @@ function providerForm(p, authority) {
   const dnsBlock = h('div', {},
     h('div', { class: 'sect' }, 'DNS credentials'),
     h('p', { class: 'meta', style: 'margin:0 0 12px' }, 'Used to publish the temporary TXT record that proves you own the names (DNS-01).'), pf.node);
-  const defaultName = () => authSel.value === 'eab' ? ((presets.find(c => c.id === caSel.value) || {}).label || 'CA').replace(/ \(.*/, '') : 'Cloudflare';
-  if (isNew && !p.name) name.input.value = defaultName();
-  let autoName = isNew ? name.input.value : null; // the name offered, replaced only while the user has not typed their own
+  // The name is the person's own: nothing is filled in for them. A hint shows what a good one looks like.
+  name.input.placeholder = 'A name you will recognise, for example Cloudflare (example.com)';
   const paint = () => {
     const eab = authSel.value === 'eab';
     eabPanel.style.display = eab ? '' : 'none';
@@ -1155,7 +1159,6 @@ function providerForm(p, authority) {
     if (!canSkip) noDnsChk.checked = false;
     dnsBlock.style.display = canSkip && noDnsChk.checked ? 'none' : '';
     testBlock.style.display = canSkip && noDnsChk.checked ? 'none' : '';
-    if (isNew && name.input.value === autoName) { autoName = name.input.value = defaultName(); }
   };
   authSel.addEventListener('change', paint);
   caSel.addEventListener('change', paint);
@@ -1177,6 +1180,7 @@ function providerForm(p, authority) {
     h('div', { class: 'grow' }),
     h('button', { class: 'btn', onclick: close }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+      if (!name.get().trim()) throw new Error('Enter a name for this provider');
       const extra = authSel.value === 'eab' ? eabFields() : { authority: 'letsencrypt' };
       const noDns = authSel.value === 'eab' && noDnsChk.checked && noDnsField.style.display !== 'none';
       await api(isNew ? 'POST' : 'PUT', isNew ? '/api/dns' : '/api/dns/' + p.id, Object.assign({ name: name.get() }, noDns ? { kind: '', config: {} } : pf.read(), extra));
@@ -1361,6 +1365,21 @@ function resetUserForm(name) {
     }) }, 'Reset password')]);
 }
 
+// A new self-signed certificate for this page. Confirmed with the password because a reverse proxy that
+// pins the old certificate stops working until it is told about the new one.
+function regenerateUICertForm() {
+  const c = fieldEl({ key: 'c', label: 'Your password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
+  modal('Regenerate the self-signed certificate?', h('div', {},
+    h('p', {}, 'CertSmith creates a new key and a new self-signed certificate for this page, valid for five years and covering the names and addresses this server has now. It applies to new connections straight away, and nobody is signed out.'),
+    h('p', {}, 'Browsers ask again whether to trust the page. A reverse proxy that pins or trusts the current certificate must be given the new fingerprint, which is shown here afterwards.'),
+    c.wrap), close => [h('div', { class: 'grow' }),
+    h('button', { class: 'btn', onclick: close }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+      await api('POST', '/api/ui-cert/regenerate', { confirm: c.get() });
+      close(); toast('New self-signed certificate created'); await refresh();
+    }) }, 'Regenerate certificate')]);
+}
+
 function deleteUserForm(name) {
   const c = fieldEl({ key: 'c', label: 'Your password, to confirm', type: 'password', required: true, autocomplete: 'current-password' }, '');
   modal('Delete ' + name + '?', h('div', {}, h('p', {}, name + ' will no longer be able to sign in.'), c.wrap), close => [h('div', { class: 'grow' }),
@@ -1492,7 +1511,10 @@ function renderSettings() {
     } else if (u.self_signed) {
       current = h('div', { class: 'certline' },
         h('div', {}, chip('self-signed', 'warn'), ' ', h('strong', {}, u.bootstrap ? 'Self-signed certificate created by CertSmith' : 'Self-signed certificate: ' + u.subject)),
-        h('div', { class: 'meta' }, [until, fp].filter(Boolean).join(' · ')));
+        h('div', { class: 'meta' }, [until, fp].filter(Boolean).join(' · ')),
+        h('div', { class: 'meta' }, 'CertSmith renews this certificate by itself 30 days before it expires.'),
+        u.missing_names && u.missing_names.length
+          ? h('div', { class: 'meta', style: 'color:var(--warn)' }, 'It does not list ' + u.missing_names.join(', ') + ', which this server now uses. Regenerate it to include them.') : null);
     } else {
       const managed = mine && cert && mine.deployed_serial && mine.deployed_serial === cert.serial;
       current = h('div', { class: 'certline' },
@@ -1507,11 +1529,13 @@ function renderSettings() {
       "This page uses a self-signed certificate until a certificate from a trusted authority is installed. " +
       "CertSmith can issue one for it and keep it renewed.",
       current, state,
-      u.tls ? h('div', { style: 'margin-top:14px' }, h('button', { class: 'btn', onclick: () => {
-        if (mine) { targetForm(mine); return; }
-        if (!S.certificates.length) { toast('Add a certificate first, for the name you will use to open this page', true); return; }
-        targetForm(null, null, 'selfui');
-      } }, 'Configure SSL certificate')) : null);
+      u.tls ? h('div', { class: 'row', style: 'margin-top:14px' },
+        h('button', { class: 'btn', onclick: () => {
+          if (mine) { targetForm(mine); return; }
+          if (!S.certificates.length) { toast('Add a certificate first, for the name you will use to open this page', true); return; }
+          targetForm(null, null, 'selfui');
+        } }, 'Configure SSL certificate'),
+        u.bootstrap ? h('button', { class: 'btn ghost', onclick: regenerateUICertForm }, 'Regenerate certificate') : null) : null);
   };
 
   // The installed version, and whether a newer release has been published. The status is redrawn in
@@ -1554,24 +1578,48 @@ function renderSettings() {
       status, h('div', { style: 'margin:10px 0 6px' }, btn), updChk.wrap);
   };
 
+  // Settings are grouped under bars that fold, so the page can be reduced to the part being worked on.
+  // The bars are native <details>, toggled in place (a redraw would throw away what is being typed), and
+  // what is folded is remembered in this browser.
+  const bars = [];
+  const allBtn = h('button', { class: 'btn ghost', type: 'button' }, 'Collapse all');
+  const syncAll = () => { allBtn.textContent = bars.every(d => !d.open) ? 'Expand all' : 'Collapse all'; };
+  const group = (id, title, hint, ...kids) => {
+    const d = h('details', { class: 'verbose setgroup', open: !settingsFolded.has(id) },
+      h('summary', {}, h('span', { class: 'gtitle' }, title), h('span', { class: 'meta ghint' }, hint)),
+      h('div', { class: 'gbody' }, ...kids));
+    d.addEventListener('toggle', () => {
+      if (d.open) settingsFolded.delete(id); else settingsFolded.add(id);
+      try { localStorage.setItem('certsmith.settings.folded', JSON.stringify([...settingsFolded])); } catch (_) { /* not remembered */ }
+      syncAll();
+    });
+    bars.push(d);
+    return d;
+  };
+  // two stacks side by side when there is room, one above the other when there is not
+  const two = (left, right) => h('div', { class: 'grid2' },
+    h('div', { class: 'stack' }, ...left), h('div', { class: 'stack' }, ...right));
+  allBtn.addEventListener('click', () => { const open = bars.every(d => !d.open); bars.forEach(d => { d.open = open; }); });
+
   return h('div', {},
-    h('h1', {}, 'Settings'), h('p', { class: 'sub' }, "Configuration for Let's Encrypt, DNS validation, renewal and monitoring, alerting, the HTTPS certificate for this page, and users."),
-    // two stacks, split so both end at about the same height; they sit side by side when there is room
-    // and one above the other when there is not
-    h('div', { class: 'grid2' },
-      h('div', { class: 'stack' },
-        card("Let's Encrypt (ACME)", 'Applies to every Let\'s Encrypt provider. Other certificate authorities are configured under Certificate providers.', dir.wrap, email.wrap),
-        card('DNS validation', 'How CertSmith confirms that the DNS challenge record is published. Applies to every certificate provider.', resField, dnsCheck.wrap, dnsWait.wrap),
-        card('Renewal & monitoring', 'Renewal threshold, expiry alert threshold and the interval for checking live endpoints.', renew.wrap, warn.wrap, probe.wrap),
-        webUICard(),
-        softwareCard()),
-      h('div', { class: 'stack' },
-        card('Email alerts', 'Alerts sent by email when a certificate is close to expiry, issuing or deployment fails, or a device serves an unexpected certificate.',
-          sm.enabled.wrap, pair(sm.host, sm.port), pair(sm.security, sm.username), pair(sm.password, sm.from), sm.to.wrap),
-        card('Other alerts', 'Optional additional alert channel.', hook.wrap),
-        alertsCard())),
-    // users are a wide table with a password form: they get a row of their own
-    h('div', { class: 'usersrow' }, usersCard()),
+    h('div', { class: 'row between wrap', style: 'margin-bottom:14px' },
+      h('div', {}, h('h1', {}, 'Settings'),
+        h('p', { class: 'sub', style: 'margin:0' }, "Configuration for Let's Encrypt, DNS validation, renewal and monitoring, alerting, the HTTPS certificate for this page, and users.")),
+      allBtn),
+    group('issuing', 'Issuing and renewal', "Let's Encrypt, DNS validation, renewal and monitoring",
+      two([card("Let's Encrypt (ACME)", 'Applies to every Let\'s Encrypt provider. Other certificate authorities are configured under Certificate providers.', dir.wrap, email.wrap),
+           card('Renewal & monitoring', 'Renewal threshold, expiry alert threshold and the interval for checking live endpoints.', renew.wrap, warn.wrap, probe.wrap)],
+          [card('DNS validation', 'How CertSmith confirms that the DNS challenge record is published. Applies to every certificate provider.', resField, dnsCheck.wrap, dnsWait.wrap)])),
+    group('alerts', 'Alerts', 'Email, webhook, and which events are sent where',
+      two([card('Email alerts', 'Alerts sent by email when a certificate is close to expiry, issuing or deployment fails, or a device serves an unexpected certificate.',
+             sm.enabled.wrap, pair(sm.host, sm.port), pair(sm.security, sm.username), pair(sm.password, sm.from), sm.to.wrap),
+           card('Other alerts', 'Optional additional alert channel.', hook.wrap)],
+          [alertsCard()])),
+    group('server', 'This server', 'The HTTPS certificate of this page, and the installed version',
+      two([webUICard()], [softwareCard()])),
+    group('users', 'Users', 'Accounts and your own password',
+      // users are a wide table with a password form: they get the full width
+      h('div', { class: 'usersrow' }, usersCard())),
     h('div', { class: 'savebar' }, testMsg,
       h('button', { class: 'btn', onclick: async e => {
         testMsg.className = 'testmsg'; testMsg.textContent = 'Sending…';

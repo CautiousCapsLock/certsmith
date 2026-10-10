@@ -139,6 +139,7 @@ func run(log *slog.Logger, data, listen, tlsDir string, noTLS bool, redirect str
 	}
 	ws.SetUpdates(version, checker)
 	go ws.AutoCheckUpdates(ctx)
+	go ws.AutoRenewUICert(ctx) // does nothing when the page is served without TLS
 	// Request contexts derive from baseCtx, which is cancelled when shutdown starts, so a
 	// long request (a DNS test) stops at once and cleans up instead of being cut off.
 	baseCtx, cancelBase := context.WithCancel(context.Background())
