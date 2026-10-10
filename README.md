@@ -176,7 +176,7 @@ All state is in `/var/lib/certsmith`. Back up the whole directory and store the 
 - There are no default credentials. Failed sign-ins are rate-limited per address and per user.
 - Certificates, private keys, tokens and request bodies are never written to the API call log.
 - Device API accounts used by CertSmith should be restricted to the CertSmith server's address (for example Trusted Hosts on a FortiGate). Update that restriction before changing the server's address.
-- Report a suspected vulnerability privately to the maintainer rather than in a public issue.
+- Report a suspected vulnerability through GitHub's private vulnerability reporting, not in a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Building from source
 
