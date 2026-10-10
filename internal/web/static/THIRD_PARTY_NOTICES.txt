@@ -218,7 +218,7 @@ Components
   Apache-2.0   gopkg.in/ns1/ns1-go.v2 v2.17.2
   Apache-2.0   gopkg.in/yaml.v2 v2.4.0
   Apache-2.0   gopkg.in/yaml.v3 v3.0.1
-  BSD-3-Clause software.sslmate.com/src/go-pkcs12 v0.7.1
+  BSD-3-Clause software.sslmate.com/src/go-pkcs12 v0.7.3
 
 
 ================================================================================
@@ -27332,9 +27332,9 @@ limitations under the License.
 
 
 ================================================================================
-software.sslmate.com/src/go-pkcs12 v0.7.1
+software.sslmate.com/src/go-pkcs12 v0.7.3
 Licence: BSD-3-Clause
-Source:  https://pkg.go.dev/software.sslmate.com/src/go-pkcs12@v0.7.1
+Source:  https://pkg.go.dev/software.sslmate.com/src/go-pkcs12@v0.7.3
 
 --- LICENSE ---
 

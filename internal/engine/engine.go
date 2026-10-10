@@ -408,7 +408,8 @@ func (e *Engine) Reconcile(ctx context.Context) {
 	snap := e.St.Snapshot()
 	now := time.Now()
 	for _, c := range snap.Certificates {
-		if !c.Enabled {
+		// an imported certificate is never issued or renewed here: it is replaced by uploading a new one
+		if !c.Enabled || c.Source == model.SourceImport {
 			continue
 		}
 		due := c.Serial == "" || c.ForceIssue || !domainsEqual(c.Domains, c.IssuedDomains) ||
@@ -493,6 +494,9 @@ func (e *Engine) issue(ctx context.Context, id string) error {
 	}
 	if c == nil {
 		return fmt.Errorf("certificate not found")
+	}
+	if c.Source == model.SourceImport {
+		return errors.New("an imported certificate is replaced, not issued: upload the new certificate instead")
 	}
 	e.updateCert(id, func(c *model.Certificate) { c.LastAttempt = time.Now(); c.CancelledAt = time.Time{} })
 

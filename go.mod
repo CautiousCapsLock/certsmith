@@ -6,7 +6,7 @@ require (
 	github.com/go-acme/lego/v4 v4.35.2
 	github.com/miekg/dns v1.1.72
 	golang.org/x/crypto v0.57.0
-	software.sslmate.com/src/go-pkcs12 v0.7.1
+	software.sslmate.com/src/go-pkcs12 v0.7.3
 )
 
 require (

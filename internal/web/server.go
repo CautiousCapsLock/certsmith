@@ -88,6 +88,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/dns/pending/{id}/dismiss", s.dismissPendingDNS)
 
 	mux.HandleFunc("POST /api/certs", s.audited("cert.create", "cert", s.saveCert))
+	mux.HandleFunc("POST /api/certs/import/check", s.importCheck)
+	mux.HandleFunc("POST /api/certs/import", s.audited("cert.import", "cert", s.importCert))
+	mux.HandleFunc("POST /api/certs/{id}/import", s.audited("cert.replace", "cert", s.replaceCert))
 	mux.HandleFunc("PUT /api/certs/{id}", s.audited("cert.update", "cert", s.saveCert))
 	mux.HandleFunc("DELETE /api/certs/{id}", s.audited("cert.delete", "cert", s.deleteCert))
 	mux.HandleFunc("POST /api/certs/{id}/renew", s.audited("cert.issue", "cert", s.renewCert))
@@ -104,7 +107,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/test-target", s.testTarget)
 	mux.HandleFunc("POST /api/probe", s.audited("endpoints.check", "", s.probe))
 
-	return s.auth(mux)
+	// No request body is larger than an uploaded certificate with its key, a few hundred KB.
+	return http.MaxBytesHandler(s.auth(mux), 4<<20)
 }
 
 // ---- helpers --------------------------------------------------------------------
@@ -868,6 +872,27 @@ func (s *Server) saveCert(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "name is required")
 		return
 	}
+	// An imported certificate's names, key and dates come from the file: only its label and whether it is
+	// in use can be edited. (Its names must not be rewritten to something the certificate does not cover.)
+	if eid := r.PathValue("id"); eid != "" {
+		imported, found := false, false
+		_ = s.St.Update(func(db *model.DB) error {
+			for i := range db.Certificates {
+				if c := &db.Certificates[i]; c.ID == eid {
+					found, imported = true, c.Source == model.SourceImport
+					if imported {
+						c.Name, c.Enabled = in.Name, in.Enabled
+					}
+				}
+			}
+			return nil
+		})
+		if found && imported {
+			s.Eng.Kick()
+			writeJSON(w, map[string]string{"ok": "true", "id": eid})
+			return
+		}
+	}
 	doms, err := normDomains(in.Domains)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -948,6 +973,18 @@ func (s *Server) deleteCert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renewCert(w http.ResponseWriter, r *http.Request) {
+	var imported bool
+	s.St.View(func(db *model.DB) {
+		for _, c := range db.Certificates {
+			if c.ID == r.PathValue("id") && c.Source == model.SourceImport {
+				imported = true
+			}
+		}
+	})
+	if imported {
+		fail(w, http.StatusConflict, "an imported certificate is replaced, not renewed: upload the new certificate instead")
+		return
+	}
 	if err := s.Eng.StartIssue(r.PathValue("id")); err != nil {
 		startFailed(w, err)
 		return

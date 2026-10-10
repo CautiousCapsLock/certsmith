@@ -103,6 +103,9 @@ type DNSProvider struct {
 // IsEAB reports whether the provider is a CA that needs External Account Binding.
 func (p DNSProvider) IsEAB() bool { return p.Authority == AuthorityEAB }
 
+// SourceImport marks a certificate that was uploaded rather than issued.
+const SourceImport = "import"
+
 type Certificate struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -112,6 +115,11 @@ type Certificate struct {
 	Enabled    bool     `json:"enabled"`
 	AutoRenew  bool     `json:"auto_renew"`
 	ForceIssue bool     `json:"force_issue,omitempty"`
+	// Source says where the certificate comes from. "" is the normal case: CertSmith issues it over ACME.
+	// SourceImport means someone supplied the certificate and its key: CertSmith deploys it, watches
+	// it and alerts on its expiry, but never issues or renews it. A replacement is uploaded instead.
+	Source     string    `json:"source,omitempty"`
+	ImportedAt time.Time `json:"imported_at,omitzero"`
 	// PropagationSeconds caps how long to wait for the DNS-01 record to become
 	// visible; 0 uses the provider's default.
 	PropagationSeconds int `json:"propagation_seconds"`

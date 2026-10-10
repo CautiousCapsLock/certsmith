@@ -55,6 +55,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 | Area | Capability |
 |---|---|
 | Issuing | ACME with DNS-01 validation only. Let's Encrypt, and certificate authorities that use External Account Binding (ZeroSSL, Sectigo, Google Trust Services, or a custom directory). Single-name and wildcard certificates. |
+| Importing | A certificate issued elsewhere (a company CA, a purchased certificate) can be imported from a PKCS#12 file or PEM files, then deployed, monitored and alerted on like any other. It is replaced by uploading a new one; CertSmith never issues or renews it. |
 | Renewal | Automatic renewal at a configurable threshold, with expiry and failure alerts by email and webhook. The events sent to each channel are selectable. |
 | Deployment | FortiGate (REST API), FortiManager and FortiAnalyzer (JSON-RPC), Proxmox VE, generic webhook, local files, monitor-only, and CertSmith's own web interface. |
 | Verification | Scheduled and on-demand checks of the certificate each target is serving: correct certificate, remaining validity and complete chain. |
@@ -176,7 +177,7 @@ All state is in `/var/lib/certsmith`. Back up the whole directory and store the 
 
 - Stored credentials are encrypted with AES-256-GCM. The key is generated on first start and is unique to each installation.
 - There are no default credentials. Failed sign-ins are rate-limited per address and per user.
-- Certificates, private keys, tokens and request bodies are never written to the API call log.
+- Certificates, private keys, tokens and request bodies are never written to the API call log. An imported certificate's private key is stored encrypted like every other credential, is never returned to the browser, and the PKCS#12 password is not kept.
 - Device API accounts used by CertSmith should be restricted to the CertSmith server's address (for example Trusted Hosts on a FortiGate). Update that restriction before changing the server's address.
 - Report a suspected vulnerability through GitHub's private vulnerability reporting, not in a public issue. See [SECURITY.md](SECURITY.md).
 - The only outbound request that is not to a certificate authority, a DNS provider or a managed device is the daily check for a newer release. It reads one document from `api.github.com`, sends nothing about the installation, and can be switched off in Settings.
@@ -202,6 +203,7 @@ To run without installing: `go run ./cmd/certsmith -data ./data -listen 127.0.0.
 | `internal/targets`, `internal/plugin` | Deployment targets and the interface they implement. |
 | `internal/engine` | Scheduling, renewal, deployment and alerting. |
 | `internal/web` | HTTP API and the embedded web interface (`internal/web/static`). |
+| `internal/certimport` | Reading and validating an imported certificate (PKCS#12 or PEM). |
 | `internal/store`, `internal/secret`, `internal/model` | Persistence, encryption of stored secrets and data types. |
 | `deploy/` | systemd unit and the installer packaged with each release. |
 | `docs/` | [Command-line reference](docs/REFERENCE.md), and plans for the [installer and appliance](docs/APPLIANCE.md) and [target plugins](docs/PLUGINS.md). |

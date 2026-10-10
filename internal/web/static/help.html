@@ -110,6 +110,20 @@
   <li>A certificate marked <em>test certificate: not trusted by browsers</em> was issued by the staging directory.</li>
 </ul>
 
+<h3>Importing a certificate</h3>
+<p>A certificate that was issued outside CertSmith (by a company CA, bought from a CA, or supplied with a product) can be imported and then used like any other: deployed to targets, checked on the devices, and warned about before it expires. Select <strong>Import certificate</strong> on the Certificates page.</p>
+<figure>
+  <img src="help/import.jpg" alt="The Import certificate dialog: a PEM certificate, key and chain chosen, and a summary of what they contain">
+  <figcaption>The Import dialog. <strong>Check files</strong> shows what the files contain, and anything doubtful about them, before anything is imported.</figcaption>
+</figure>
+<ul>
+  <li><strong>Formats.</strong> A PKCS#12 file (<code>.p12</code> or <code>.pfx</code>) with its password, or PEM files: the certificate (optionally followed by its CA chain), the private key, and an optional separate chain file. The key must not be protected by a passphrase. The files are read in your browser and sent to CertSmith over the page's own connection; the PKCS#12 password is used once and not stored.</li>
+  <li><strong>What is checked.</strong> The key belongs to the certificate, the certificate is not expired and is not a CA certificate, the key is RSA of 2048 bits or more or ECDSA, and the chain is put in order. Doubtful things (no issuing CA supplied, expiry within 30 days, not marked for servers, a weak signature) are shown as warnings and do not stop the import.</li>
+  <li><strong>The chain.</strong> The CA certificates that issued it are sent with it to devices. A root CA that was in the files is recognised and not sent: devices and clients are expected to have it.</li>
+  <li><strong>Names.</strong> They are read from the certificate. An imported certificate cannot have its names edited; only its label and whether it is in use.</li>
+  <li><strong>Renewal.</strong> CertSmith cannot renew an imported certificate. It appears on the page with an <em>imported</em> label, and expiry alerts work as usual. When the replacement arrives, select <strong>Replace</strong> on it and upload the new files: targets that were deployed to receive it automatically, as they would a renewal.</li>
+</ul>
+
 <h2 id="targets">Targets</h2>
 <p>A target is a device or service that uses a certificate. CertSmith talks to it through its API, never by logging in over SSH.</p>
 
@@ -216,7 +230,7 @@
   <li><strong>Configure the channels.</strong> <em>Email alerts</em>: enable <em>Send alerts by email</em> and enter the SMTP host, port, security, credentials, from address and recipients. <em>Other alerts</em>: a webhook URL for any endpoint that accepts JSON with a <code>text</code> field (Slack, Mattermost, Microsoft Teams and others). <strong>Send test alert</strong> checks the settings without saving them.</li>
   <li><strong>Select the events</strong> in <em>Alert types</em>, separately for email and webhook:
     <ul>
-      <li><em>Certificates</em>: issuance or renewal fails, a certificate is close to expiry, a certificate is issued or renewed.</li>
+      <li><em>Certificates</em>: issuance or renewal fails, a certificate is close to expiry, a certificate is issued, renewed or imported.</li>
       <li><em>Devices</em>: a deployment fails or succeeds, a device cannot be reached, serves a different certificate than the one deployed, sends an incomplete chain, or serves a certificate close to expiry, and when a problem is resolved.</li>
       <li><em>Administration</em>: a user is created or deleted, a password is changed or reset, settings are changed, the web page's self-signed certificate is regenerated or renewed.</li>
     </ul>
@@ -297,6 +311,7 @@
   <tr><td><strong>Wildcard</strong></td><td>A certificate for <code>*.example.com</code>, valid for any single label under the domain.</td></tr>
   <tr><td><strong>EAB</strong></td><td>External Account Binding: a key ID and HMAC key from a CA that tie your ACME account to your customer account there.</td></tr>
   <tr><td><strong>Intermediate CA</strong></td><td>The CA certificate that signed yours. Devices must send it with the certificate or some clients cannot build the chain.</td></tr>
+  <tr><td><strong>PKCS#12</strong></td><td>A single password-protected file (<code>.p12</code> or <code>.pfx</code>) that holds a certificate, its private key and usually its CA chain.</td></tr>
   <tr><td><strong>Staging</strong></td><td>A Let's Encrypt test directory that issues untrusted certificates with relaxed limits.</td></tr>
   <tr><td><strong>Trusted Hosts</strong></td><td>A device setting that limits which addresses an administrator account may sign in from.</td></tr>
 </table>

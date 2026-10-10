@@ -493,11 +493,13 @@ function certCard(c) {
       h('div', { class: 'grow' },
         h('div', { class: 'row wrap' }, h('h2', {}, c.name),
           !c.enabled ? chip('disabled') : null,
-          c.auto_renew ? null : chip('manual renewal', 'warn'),
+          c.source === 'import' ? chip('imported') : c.auto_renew ? null : chip('manual renewal', 'warn'),
           (c.issuer || '').includes('STAGING') ? chipTitled('test certificate: not trusted by browsers', 'warn', "Issued by the Let's Encrypt staging CA, which is for testing. Set the directory to production in Settings to reissue and redeploy it.") : null,
           reissueDirection(c) ? chip('will be reissued from ' + dirLabel(effectiveDir(c)), 'info') : null),
         h('div', { class: 'doms' }, c.domains.join(', ')),
-        h('div', { class: 'meta' }, c.serial
+        h('div', { class: 'meta' }, c.source === 'import'
+          ? `${c.issuer || 'unknown issuer'} · serial ${(c.serial || '').slice(0, 12)}… · ${c.key_type} · imported ${fmt(c.imported_at)}`
+          : c.serial
           ? `${c.issuer || 'unknown issuer'} · serial ${c.serial.slice(0, 12)}… · ${c.key_type} · ${c.dns_id ? (byId(S.dns_providers, c.dns_id) || {}).kind === '' ? authorityLabel(byId(S.dns_providers, c.dns_id)) + ' (' + byId(S.dns_providers, c.dns_id).name + ', names validated at the CA)' : authorityLabel(byId(S.dns_providers, c.dns_id) || {}) + ' via DNS-01 (' + ((byId(S.dns_providers, c.dns_id) || {}).name || '?') + ')' : 'no certificate provider'}`
           : 'not issued yet'),
         c.last_error ? h('div', { class: 'err' }, 'Last error: ' + c.last_error) : null,
@@ -508,15 +510,17 @@ function certCard(c) {
             : (ts.length ? chip('OK', 'ok') : null)) : null),
       expiry,
       h('div', { class: 'row' },
-        c.issuing
+        c.source === 'import'
+          ? h('button', { class: 'btn small', title: 'Upload the new certificate; targets that were deployed to receive it', onclick: () => importForm(c) }, 'Replace')
+          : c.issuing
           // spinner while it runs; on hover the same button becomes a red Stop
           ? h('button', { class: 'btn small stopbtn', title: issuingTooltip(c), 'aria-label': 'Stop issuing',
               onclick: () => act('POST', `/api/certs/${c.id}/cancel`, 'Stopping…') },
               h('span', { class: 'on' }, spinner(), ' Issuing…'), h('span', { class: 'off' }, '■ Stop'))
           : h('button', { class: 'btn small', onclick: () => act('POST', `/api/certs/${c.id}/renew`, 'Issuance started - the ACME log shows progress') },
               c.serial ? 'Renew now' : 'Issue now'),
-        h('button', { class: 'btn small ghost', onclick: () => certForm(c) }, 'Edit'))),
-    folded ? null : logPanel(c),
+        h('button', { class: 'btn small ghost', onclick: () => c.source === 'import' ? importedEditForm(c) : certForm(c) }, 'Edit'))),
+    folded || c.source === 'import' ? null : logPanel(c),
     folded ? null : h('div', { class: 'targets' },
       ts.length ? ts.map(t => targetRow(t, c))
         : h('div', { class: 'trow' }, h('div', { class: 'meta' }, 'No targets yet - this certificate is not deployed anywhere.'),
@@ -537,9 +541,11 @@ function renderOverview() {
       h('div', { class: 'row' },
         certs.length > 1 ? h('button', { class: 'btn ghost', onclick: () => setCollapsed(certs.map(c => c.id), !certs.every(c => collapsedCerts.has(c.id))) },
           certs.every(c => collapsedCerts.has(c.id)) ? 'Expand all' : 'Collapse all') : null,
+        h('button', { class: 'btn', title: 'Add a certificate that somebody else issued, from a PKCS#12 or PEM file', onclick: () => importForm(null) }, 'Import certificate'),
         h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate'))),
     // spread: the native append() would print the text "null" for an absent banner
-    ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email)))
+    ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email))
+         && !(certs.length && certs.every(c => c.source === 'import'))) // only imported certificates: nothing is issued
       ? [h('div', { class: 'banner warn' }, 'Set an account email in ', h('a', { href: '#', onclick: e => { e.preventDefault(); view = 'settings'; render(); } }, 'Settings'), ' before issuing certificates.')]
       : []),
     ...((updateInfo && updateInfo.available)
@@ -667,6 +673,7 @@ const AUDIT_LABELS = {
   'provider.create': 'Provider added', 'provider.update': 'Provider changed', 'provider.delete': 'Provider deleted',
   'provider.dns_test': 'DNS challenge tested', 'provider.check_account': 'CA account checked',
   'cert.create': 'Certificate added', 'cert.update': 'Certificate changed', 'cert.delete': 'Certificate deleted',
+  'cert.import': 'Certificate imported', 'cert.replace': 'Imported certificate replaced',
   'cert.issue': 'Issuance started', 'cert.cancel': 'Issuance stopped',
   'target.create': 'Target added', 'target.update': 'Target changed', 'target.delete': 'Target deleted',
   'target.deploy': 'Deployment started', 'target.pause': 'Automatic deployment paused', 'target.resume': 'Automatic deployment resumed',
@@ -948,6 +955,103 @@ const dirLabel = d => d === 'production' ? "Let's Encrypt" : d === 'staging' ? "
 function sortedDNS() {
   const rank = d => d.kind === 'cloudflare' ? 0 : d.kind === 'lego' ? 2 : 1;
   return [...schema.dns].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
+}
+
+// Upload a certificate that somebody else issued (a PKCS#12 file, or PEM files). It is then deployed,
+// watched and alerted on like any other, but cannot be renewed here: a new one is uploaded with Replace.
+// With c, the certificate of an imported entry is replaced.
+function importForm(c) {
+  const replacing = !!c;
+  const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, replacing ? c.name : '');
+  name.input.disabled = replacing;
+  name.input.placeholder = 'A name you will recognise, for example Corporate wildcard';
+  const fmtSel = h('select', {}, h('option', { value: 'p12' }, 'PKCS#12 file (.p12 or .pfx)'),
+    h('option', { value: 'pem' }, 'PEM files (certificate and private key)'));
+  const file = accept => h('input', { type: 'file', accept });
+  const p12 = file('.p12,.pfx,application/x-pkcs12');
+  const pw = fieldEl({ key: 'pw', label: 'Password of the PKCS#12 file', type: 'password', autocomplete: 'off' }, '');
+  const certF = file('.pem,.crt,.cer'), keyF = file('.pem,.key'), chainF = file('.pem,.crt,.cer');
+  const row = (label, input, help) => h('div', { class: 'field' }, h('label', {}, label), input, help ? h('div', { class: 'help' }, help) : null);
+  const p12Panel = h('div', {}, row('PKCS#12 file *', p12, 'The file that holds the certificate, its private key and usually its CA chain.'), pw.wrap);
+  const pemPanel = h('div', {},
+    row('Certificate file *', certF, 'PEM text starting with -----BEGIN CERTIFICATE-----. The CA chain may follow the certificate in the same file.'),
+    row('Private key file *', keyF, 'PEM text starting with -----BEGIN PRIVATE KEY----- (or RSA or EC PRIVATE KEY). It must not be protected by a passphrase.'),
+    row('CA chain file (optional)', chainF, 'Only needed when the chain is not already in the certificate file.'));
+  const result = h('div');
+  const paint = () => {
+    p12Panel.style.display = fmtSel.value === 'p12' ? '' : 'none';
+    pemPanel.style.display = fmtSel.value === 'pem' ? '' : 'none';
+    result.replaceChildren();
+  };
+  fmtSel.addEventListener('change', paint);
+  const readB64 = async f => {
+    const buf = new Uint8Array(await f.files[0].arrayBuffer());
+    let s = '';
+    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
+  const readText = f => f.files[0] ? f.files[0].text() : Promise.resolve('');
+  const payload = async () => {
+    if (fmtSel.value === 'p12') {
+      if (!p12.files[0]) throw new Error('Choose the PKCS#12 file');
+      return { p12: await readB64(p12), password: pw.get() };
+    }
+    if (!certF.files[0]) throw new Error('Choose the certificate file');
+    if (!keyF.files[0]) throw new Error('Choose the private key file');
+    return { cert_pem: await readText(certF), key_pem: await readText(keyF), chain_pem: await readText(chainF) };
+  };
+  const show = s => {
+    const rows = [
+      ['Names', (s.names || []).join(', ')], ['Issued by', s.issuer || 'unknown'], ['Valid until', fmt(s.not_after)],
+      ['Key', s.key_type],
+      ['CA chain', s.chain_length ? s.chain_length + ' CA certificate' + (s.chain_length === 1 ? '' : 's') + ' will be sent with it' : 'none supplied'],
+      ['Serial', String(s.serial || '').slice(0, 20) + '…'],
+    ];
+    result.replaceChildren(
+      h('div', { class: 'certline', style: 'margin-top:12px' }, h('div', {}, chip('Readable', 'ok'), ' ', h('strong', {}, 'This is what will be imported')),
+        ...rows.map(([k, v]) => h('div', { class: 'meta' }, h('strong', {}, k + ': '), v))),
+      ...(s.warnings || []).map(w => h('div', { class: 'banner warn', style: 'margin:8px 0 0' }, w)));
+  };
+  paint();
+  const intro = replacing
+    ? 'Upload the new certificate for this entry. Targets that were deployed to receive it automatically, as they would a renewal.'
+    : 'Use this for a certificate that was issued outside CertSmith: by a company CA, bought from a CA, or supplied with a product. CertSmith deploys it to your targets and warns before it expires, but cannot renew it: upload the new one with Replace when it arrives.';
+  modal(replacing ? 'Replace certificate' : 'Import certificate',
+    h('div', {}, h('p', { class: 'meta', style: 'margin:0 0 12px' }, intro), name.wrap, row('Format', fmtSel), p12Panel, pemPanel, result),
+    close => [h('div', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: close }, 'Cancel'),
+      h('button', { class: 'btn', title: 'Reads the files and shows what they contain, without importing', onclick: e => submit(e.target, async () => {
+        const r = await api('POST', '/api/certs/import/check', await payload());
+        show(r.summary);
+      }) }, 'Check files'),
+      h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+        if (!replacing && !name.get().trim()) throw new Error('Give the certificate a name');
+        const body = Object.assign({ name: name.get().trim() }, await payload());
+        await api('POST', replacing ? '/api/certs/' + c.id + '/import' : '/api/certs/import', body);
+        close(); toast(replacing ? 'Certificate replaced' : 'Certificate imported');
+      }) }, replacing ? 'Replace certificate' : 'Import certificate')]);
+}
+
+// An imported certificate's names, key and dates come from its file, so only its label and whether it
+// is in use are edited here.
+function importedEditForm(c) {
+  const name = fieldEl({ key: 'name', label: 'Name', type: 'text', required: true }, c.name);
+  const en = fieldEl({ key: 'enabled', label: 'Enabled', type: 'bool' }, c.enabled);
+  modal('Edit imported certificate', h('div', {}, name.wrap,
+    h('div', { class: 'field' }, h('label', {}, 'Names in the certificate'), h('div', { class: 'meta' }, (c.domains || []).join(', ')),
+      h('div', { class: 'help' }, 'Fixed by the certificate. To change them, import a different certificate with Replace.')), en.wrap),
+    close => [
+      h('button', { class: 'btn danger', onclick: async e => {
+        if (!confirm(`Delete certificate "${c.name}" and its stored key?`)) return;
+        await submit(e.target, async () => { await api('DELETE', '/api/certs/' + c.id); close(); toast('Deleted'); });
+      } }, 'Delete'),
+      h('div', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: close }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+        if (!name.get().trim()) throw new Error('Give the certificate a name');
+        await api('PUT', '/api/certs/' + c.id, { name: name.get().trim(), enabled: en.get() === 'true' });
+        close(); toast('Saved');
+      }) }, 'Save')]);
 }
 
 function certForm(c) {
