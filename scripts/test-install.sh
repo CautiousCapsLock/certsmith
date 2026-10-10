@@ -42,6 +42,7 @@ stub ss         'case "$*" in
   *)   [ -z "${STUB_LISTEN:-}" ] || echo "LISTEN 0 4096 0.0.0.0:$STUB_LISTEN 0.0.0.0:*" ;;
 esac'
 stub ufw        "$LOGIT"'
+if [ -n "${STUB_UFW_FAIL:-}" ] && echo "$*" | grep -q -- "$STUB_UFW_FAIL"; then echo "ERROR: simulated failure"; exit 1; fi
 case "$*" in
   status*) echo "Status: ${STUB_UFW:-inactive}" ;;
   *allow*) if [ -n "${STUB_UFW_HAS:-}" ] && echo "$*" | grep -q "$STUB_UFW_HAS"; then echo "Skipping adding existing rule"; else echo "Rule added"; fi ;;
@@ -54,7 +55,7 @@ newcase() { # name
   mkdir -p "$R" "$REL"; : > "$LOG"
   cp "$here/deploy/install.sh" "$here/deploy/certsmith.service" "$REL/"
   printf '#!/bin/sh\necho 9.9.9\n' > "$REL/certsmith-linux-amd64"; chmod +x "$REL/certsmith-linux-amd64"
-  unset STUB_UFW STUB_UFW_HAS STUB_LISTEN STUB_ADDRS STUB_HAS_UU STUB_NOUSER
+  unset STUB_UFW STUB_UFW_HAS STUB_UFW_FAIL STUB_LISTEN STUB_ADDRS STUB_HAS_UU STUB_NOUSER
 }
 run() { # installer arguments
   OUT=$(cd "$REL" && CERTSMITH_ROOT="$R" CERTSMITH_WAIT=2 STUB_LOG="$LOG" \
@@ -120,6 +121,24 @@ suite() {
   logged "ufw allow from 198.51.100.7 to any port 8443 proto tcp" && pass "allow-from: second network" || fail "allow-from: second network"
   ! logged "ufw allow 8443/tcp" && pass "allow-from: no open-to-any rule" || fail "allow-from: no open-to-any rule"
   case "$OUT" in *"public address"*) fail "no public-address warning when networks are limited" ;; *) pass "no public-address warning when networks are limited" ;; esac
+
+  # re-running with --allow-from must really narrow access, not just add rules next to the open ones
+  newcase narrow
+  STUB_LISTEN=443 run
+  : > "$LOG"
+  STUB_LISTEN=443 run --allow-from 203.0.113.0/24
+  logged "ufw allow from 203.0.113.0/24 to any port 443 proto tcp" && pass "narrowing: the restricted rule is added" || fail "narrowing: restricted rule added" "$(cat "$LOG")"
+  logged "ufw --force delete allow 443/tcp" && logged "ufw --force delete allow 80/tcp" && pass "narrowing: the earlier open-to-any rules are removed" || fail "narrowing: open rules removed" "$(cat "$LOG")"
+  ! grep -qxF "allow 443/tcp" "$R/etc/certsmith/firewall.rules" && grep -qxF "allow from 203.0.113.0/24 to any port 443 proto tcp" "$R/etc/certsmith/firewall.rules" \
+    && pass "narrowing: the record matches what is on the host" || fail "narrowing: record" "$(cat "$R/etc/certsmith/firewall.rules")"
+  a=$(lineno "ufw allow from 203.0.113.0/24 to any port 443"); b=$(lineno "ufw --force delete allow 443/tcp")
+  { [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; } && pass "narrowing: the new rule goes in before the old one comes out" || fail "narrowing: order" "add@$a delete@$b"
+
+  newcase narrowfail
+  STUB_LISTEN=443 run
+  : > "$LOG"
+  STUB_UFW_FAIL="allow from" STUB_LISTEN=443 run --allow-from 203.0.113.0/24
+  ! logged "ufw --force delete" && pass "narrowing: nothing is removed when a new rule could not be added" || fail "narrowing: kept the open rule on failure" "$(cat "$LOG")"
 
   newcase fwactive
   STUB_UFW=active STUB_LISTEN=443 run

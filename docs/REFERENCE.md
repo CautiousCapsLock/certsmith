@@ -51,7 +51,7 @@ upgrade. Options accept either `--option value` or `--option=value`.
 | Option | Default | Effect |
 |---|---|---|
 | `--listen ADDR:PORT` | New install: `0.0.0.0:443`. Upgrade: the current address. | Address of the web interface. Written to `/etc/certsmith/certsmith.env`. |
-| `--allow-from LIST` | `any` | Comma-separated addresses or networks (or the word `any`) allowed to reach the web interface and the redirect port. Applies firewall rules even on an upgrade. Each value is validated: only hexadecimal digits, `:`, `.` and `/` are accepted. |
+| `--allow-from LIST` | `any` | Comma-separated addresses or networks (or the word `any`) allowed to reach the web interface and the redirect port. Applies firewall rules even on an upgrade. When narrowing from `any`, the open-to-any rules this installer added earlier for the same ports are removed after the new rules are in place. Each value is validated: only hexadecimal digits, `:`, `.` and `/` are accepted. |
 | `--firewall` | | Apply firewall rules on an upgrade (a new install always does, unless `--no-firewall`). |
 | `--no-firewall` | | Never touch the firewall. |
 | `--http-redirect` | New install on 443: on. Upgrade: unchanged. | Listen on `0.0.0.0:80` and redirect to HTTPS. Not applied when the interface is plain HTTP (`-no-tls`). |
@@ -68,7 +68,7 @@ Behaviour that is not an option:
 
 - **New or upgrade.** An install is an upgrade when the unit file, the program or `db.json` already exists. Only a new install touches the firewall, `unattended-upgrades` and the redirect, unless an option above asks.
 - **Never changes networking** (address, gateway, DNS).
-- **Keeps the current SSH session.** When it turns the firewall on, the SSH ports in use are allowed first.
+- **Keeps the current SSH session.** When it turns the firewall on, the SSH ports in use are allowed first, from any source, as they were before the firewall existed. `--allow-from` does not narrow SSH, so a typo cannot lock you out. Narrow it yourself once you have confirmed access: `ufw delete allow 22/tcp` then `ufw allow from NETWORK to any port 22 proto tcp`.
 - **Keeps the listen address.** A first-release unit file with inline `-listen`/`-no-tls` flags is migrated into the settings file.
 - **Rolls back.** If the service is not listening within the wait time, the previous program, unit file and settings file are restored.
 - **Warns** when the host has a public IPv4 address or a global IPv6 address (`2000::/3`) and `--allow-from` was not given. The firewall rule for a port applies to both IPv4 and IPv6 on a host where `ufw` has IPv6 enabled, which is the Ubuntu default.

@@ -354,19 +354,40 @@ setup_firewall() {
     ufw default allow outgoing >/dev/null 2>&1 || true
   fi
 
+  _failed=0; _narrowing=0
   for _port in $PORT $REDIRECT_PORT; do
     for _n in $(printf '%s' "${ALLOW:-any}" | tr ',' ' '); do
       if [ "$_n" = any ]; then _spec="allow $_port/tcp"
-      else                     _spec="allow from $_n to any port $_port proto tcp"
+      else                     _spec="allow from $_n to any port $_port proto tcp"; _narrowing=1
       fi
       # shellcheck disable=SC2086  # words validated above
-      _out=$(ufw $_spec 2>&1) || { warn "ufw: $_out"; continue; }
+      _out=$(ufw $_spec 2>&1) || { warn "ufw: $_out"; _failed=1; continue; }
       case "$_out" in
         *"Skipping adding existing rule"*) say "firewall: already present: $_spec" ;;
         *) echo "$_spec" >> "$FW_RECORD.new"; say "firewall: $_spec" ;;
       esac
     done
   done
+
+  # Narrowing to specific networks must also take away the open-to-any rule this installer added on an
+  # earlier run, or the new rules change nothing. Done only after every new rule is in place, so a
+  # failure cannot leave the port closed, and only for rules recorded as ours.
+  if [ "$_narrowing" -eq 1 ] && [ "$_failed" -eq 0 ]; then
+    for _port in $PORT $REDIRECT_PORT; do
+      _old="allow $_port/tcp"
+      if grep -qxF "$_old" "$FW_RECORD.new" 2>/dev/null; then
+        if ufw --force delete $_old >/dev/null 2>&1; then
+          grep -vxF "$_old" "$FW_RECORD.new" > "$FW_RECORD.tmp" || true
+          mv -f "$FW_RECORD.tmp" "$FW_RECORD.new"
+          say "firewall: removed the open-to-any rule: $_old"
+        else
+          warn "could not remove the open-to-any rule '$_old'; remove it with: ufw delete $_old"
+        fi
+      elif ufw status 2>/dev/null | grep -E "^$_port/tcp +ALLOW +Anywhere" >/dev/null; then
+        warn "an existing firewall rule still allows $_port/tcp from any source (it was not added by this installer); remove it with: ufw delete allow $_port/tcp"
+      fi
+    done
+  fi
 
   if [ "$_active" -eq 0 ]; then
     ufw --force enable >/dev/null 2>&1 || warn "could not enable ufw"
