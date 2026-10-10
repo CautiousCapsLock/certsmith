@@ -127,6 +127,27 @@ func TestARealCertificateIsNeverReplaced(t *testing.T) {
 	}
 }
 
+// The first builds wrote the organisation as "Certsmith (self-signed bootstrap)". A server that has
+// run since then still serves such a certificate; it is CertSmith's own and must be treated as such
+// (regenerated on request, renewed before it expires), not as somebody else's.
+func TestACertificateFromAnEarlyBuildStillCountsAsCertSmithsOwn(t *testing.T) {
+	dir := t.TempDir()
+	legacy, key := selfSigned(t, "Certsmith (self-signed bootstrap)", time.Now().Add(24*time.Hour))
+	if err := os.WriteFile(filepath.Join(dir, CertFile), legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, KeyFile), key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !IsBootstrap(readCert(t, dir)) {
+		t.Fatal("an early build's certificate was not recognised as CertSmith's own")
+	}
+	renewed, err := RenewIfDue(dir, 30*24*time.Hour, time.Now())
+	if err != nil || !renewed {
+		t.Fatalf("renewed=%v err=%v: it expires in a day and must be renewed", renewed, err)
+	}
+}
+
 func TestAFreshCertificateCoversThisMachine(t *testing.T) {
 	dir := t.TempDir()
 	if err := generate(dir); err != nil {

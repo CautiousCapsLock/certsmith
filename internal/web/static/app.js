@@ -1659,7 +1659,9 @@ function renderSettings() {
       current = h('div', { class: 'certline' },
         h('div', {}, chip('self-signed', 'warn'), ' ', h('strong', {}, u.bootstrap ? 'Self-signed certificate created by CertSmith' : 'Self-signed certificate: ' + u.subject)),
         h('div', { class: 'meta' }, [until, fp].filter(Boolean).join(' · ')),
-        h('div', { class: 'meta' }, 'CertSmith renews this certificate by itself 30 days before it expires.'),
+        u.bootstrap
+          ? h('div', { class: 'meta' }, 'CertSmith renews this certificate by itself 30 days before it expires.')
+          : h('div', { class: 'meta' }, 'This certificate was not created by CertSmith, so it is left alone and not renewed. Use Configure SSL certificate to install a trusted one.'),
         u.missing_names && u.missing_names.length
           ? h('div', { class: 'meta', style: 'color:var(--warn)' }, 'It does not list ' + u.missing_names.join(', ') + ', which this server now uses. Regenerate it to include them.') : null);
     } else {

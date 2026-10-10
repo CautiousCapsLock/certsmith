@@ -19,6 +19,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -106,13 +107,15 @@ func generate(dir string) error {
 // A running Loader picks the new pair up on the next connection.
 func Regenerate(dir string) error { return generate(dir) }
 
-// IsBootstrap reports whether c is the self-signed certificate CertSmith made for itself.
+// IsBootstrap reports whether c is the self-signed certificate CertSmith made for itself. The
+// organisation is compared without regard to case: the first builds wrote "Certsmith (...)", and
+// installed servers still have such a certificate.
 func IsBootstrap(c *x509.Certificate) bool {
 	if c == nil || !bytesEqual(c.RawIssuer, c.RawSubject) {
 		return false
 	}
 	for _, o := range c.Subject.Organization {
-		if o == BootstrapOrg {
+		if strings.EqualFold(o, BootstrapOrg) {
 			return true
 		}
 	}
