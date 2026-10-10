@@ -47,6 +47,9 @@ type Server struct {
 	Version string
 	Updates *update.Checker
 
+	autoAuditErr string    // the last failure of the automatic update check that was written to the audit log
+	autoAuditAt  time.Time // and when
+
 	sessionKey []byte
 	lim        *limiter
 }
@@ -454,7 +457,22 @@ func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	writeJSON(w, s.Updates.Check(ctx))
+	info := s.Updates.Check(ctx)
+	s.audit(r, "update.check", "software", updateDetail(info))
+	writeJSON(w, info)
+}
+
+// updateDetail words the outcome of an update check for the audit log: what was found, nothing more.
+func updateDetail(info update.Info) string {
+	switch {
+	case info.Error != "":
+		return "failed: " + info.Error
+	case info.Available:
+		return "version " + strings.TrimPrefix(info.Latest, "v") + " is available (running " + info.Current + ")"
+	case info.Latest != "":
+		return "up to date (latest release " + strings.TrimPrefix(info.Latest, "v") + ", running " + info.Current + ")"
+	}
+	return "no release information"
 }
 
 // AutoCheckUpdates runs the automatic check: once a day, an hour after a failure, and not at all
@@ -486,12 +504,28 @@ func (s *Server) autoCheckOnce(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	info := s.Updates.Check(cctx)
+	s.auditAutoCheck(info)
 	switch {
 	case info.Error != "":
 		s.Log.Info("update check failed", "err", info.Error)
 	case info.Available && info.Latest != before:
 		s.Log.Info("a newer version is available", "current", info.Current, "latest", info.Latest)
 	}
+}
+
+// auditAutoCheck records an automatic check in the audit log (with no user: CertSmith did it). A check
+// that keeps failing for the same reason, hourly, is recorded once and then again after a day, so the
+// log is not filled with the same line.
+func (s *Server) auditAutoCheck(info update.Info) {
+	if info.Error != "" {
+		if info.Error == s.autoAuditErr && time.Since(s.autoAuditAt) < 24*time.Hour {
+			return
+		}
+		s.autoAuditErr, s.autoAuditAt = info.Error, time.Now()
+	} else {
+		s.autoAuditErr = ""
+	}
+	s.St.AddAudit(model.AuditEntry{Action: "update.check", Subject: "software", Detail: "automatic: " + updateDetail(info)})
 }
 
 // ---- settings ------------------------------------------------------------------------

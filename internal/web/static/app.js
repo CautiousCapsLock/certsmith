@@ -686,7 +686,7 @@ const AUDIT_LABELS = {
   'cert.issue': 'Issuance started', 'cert.cancel': 'Issuance stopped',
   'target.create': 'Target added', 'target.update': 'Target changed', 'target.delete': 'Target deleted',
   'target.deploy': 'Deployment started', 'target.pause': 'Automatic deployment paused', 'target.resume': 'Automatic deployment resumed',
-  'endpoints.check': 'Endpoints checked', 'event': 'Security event',
+  'endpoints.check': 'Endpoints checked', 'update.check': 'Update check', 'event': 'Security event',
 };
 let eventsTab = 'certs', auditFilter = '', eventFilter = '';
 let uiCert = {}; // the certificate this page itself is served with

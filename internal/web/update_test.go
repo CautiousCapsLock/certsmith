@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/CautiousCapsLock/certsmith/internal/model"
 	"github.com/CautiousCapsLock/certsmith/internal/update"
 )
 
@@ -173,5 +175,74 @@ func TestStateWorksWithoutAnUpdateChecker(t *testing.T) {
 	}
 	if code, _, _ := call(t, c, "POST", srv.URL+"/api/update/check", nil, false, nil); code != http.StatusServiceUnavailable {
 		t.Errorf("check without a checker = %d, want 503", code)
+	}
+}
+
+// ---- update checks are written to the audit log ----
+
+func auditActions(ws *Server, action string) []model.AuditEntry {
+	var out []model.AuditEntry
+	ws.St.View(func(db *model.DB) {
+		for _, a := range db.Audit {
+			if a.Action == action {
+				out = append(out, a)
+			}
+		}
+	})
+	return out
+}
+
+func TestACheckNowIsWrittenToTheAuditLogWithTheUserAndTheOutcome(t *testing.T) {
+	srv, ws := newTestServer(t)
+	var hits int32
+	withUpdates(t, ws, "0.12.1", "v0.13.0", &hits)
+	c := setupAndLogin(t, srv)
+	for i := 0; i < 3; i++ { // quick repeats are answered from memory and are not new checks
+		if code, body, _ := call(t, c, "POST", srv.URL+"/api/update/check", nil, false, nil); code != 200 {
+			t.Fatalf("check: %d %s", code, body)
+		}
+	}
+	got := auditActions(ws, "update.check")
+	if len(got) != 1 {
+		t.Fatalf("audit entries = %d, want exactly one for the one real check: %+v", len(got), got)
+	}
+	e := got[0]
+	if e.User == "" || e.Subject != "software" || !strings.Contains(e.Detail, "0.13.0 is available") || strings.HasPrefix(e.Detail, "automatic") {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+func TestAnAutomaticCheckIsWrittenToTheAuditLogWithNoUser(t *testing.T) {
+	_, ws := newTestServer(t)
+	var hits int32
+	withUpdates(t, ws, "0.12.1", "v0.12.1", &hits)
+	ws.autoCheckOnce(context.Background())
+	got := auditActions(ws, "update.check")
+	if len(got) != 1 || got[0].User != "" || !strings.HasPrefix(got[0].Detail, "automatic: up to date") {
+		t.Fatalf("entries = %+v", got)
+	}
+}
+
+func TestAnAutomaticCheckThatKeepsFailingIsNotRecordedEveryHour(t *testing.T) {
+	_, ws := newTestServer(t)
+	bad := update.Info{Error: "no published release was found"}
+	ws.auditAutoCheck(bad)
+	ws.auditAutoCheck(bad) // the hourly retry
+	ws.auditAutoCheck(bad)
+	if n := len(auditActions(ws, "update.check")); n != 1 {
+		t.Fatalf("the same failure was recorded %d times, want once", n)
+	}
+	ws.auditAutoCheck(update.Info{Error: "the release host did not answer"}) // a different problem
+	if n := len(auditActions(ws, "update.check")); n != 2 {
+		t.Errorf("a different failure must be recorded: %d entries", n)
+	}
+	ws.autoAuditAt = time.Now().Add(-25 * time.Hour) // a day later the same failure is worth saying again
+	ws.auditAutoCheck(update.Info{Error: "the release host did not answer"})
+	if n := len(auditActions(ws, "update.check")); n != 3 {
+		t.Errorf("after a day the failure must be recorded again: %d entries", n)
+	}
+	ws.auditAutoCheck(update.Info{Current: "0.12.1", Latest: "v0.12.1"}) // recovery is recorded, and resets the memory
+	if n := len(auditActions(ws, "update.check")); n != 4 {
+		t.Errorf("a success must be recorded: %d entries", n)
 	}
 }
