@@ -9,6 +9,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 passes=0; fails=0
 pass() { passes=$((passes + 1)); printf '  ok    %s\n' "$1"; }
+skip() { printf '  skip  %s\n' "$1"; }
 fail() { fails=$((fails + 1));  printf '  FAIL  %s\n' "$1"; [ -z "${2:-}" ] || printf '        %s\n' "$2"; }
 sum() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
 
@@ -46,6 +47,21 @@ mkrelease() { # dir arch [evil]
   printf '#!/bin/sh\necho "INSTALLER cwd=$(basename "$(pwd)") args=$*" >> "$STUB_LOG"\n' > "$d/build/$pkg/install.sh"
   echo bin > "$d/build/$pkg/certsmith-linux-$a"; echo unit > "$d/build/$pkg/certsmith.service"
   if [ "${3:-}" = evil ]; then echo x > "$d/build/evil.txt"; (cd "$d/build" && tar czf "$d/$pkg.tar.gz" "$pkg" evil.txt)
+  elif [ "${3:-}" = apple ]; then
+    # What bsdtar on macOS stores for files that have extended attributes: AppleDouble companions, one of
+    # them beside the package directory instead of inside it. Written with Python's tarfile so the fixture
+    # is the same on every platform.
+    python3 - "$d" "$pkg" <<'FIXTURE'
+import io, sys, tarfile
+d, pkg = sys.argv[1], sys.argv[2]
+with tarfile.open("%s/%s.tar.gz" % (d, pkg), "w:gz") as t:
+    def add(name, data=b"x"):
+        ti = tarfile.TarInfo(name); ti.size = len(data); t.addfile(ti, io.BytesIO(data))
+    add("._" + pkg)
+    top = tarfile.TarInfo(pkg); top.type = tarfile.DIRTYPE; top.mode = 0o755; t.addfile(top)
+    add(pkg + "/install.sh", open("%s/build/%s/install.sh" % (d, pkg), "rb").read())
+    add(pkg + "/._install.sh")
+FIXTURE
   else (cd "$d/build" && tar czf "$d/$pkg.tar.gz" "$pkg"); fi
   printf '%s  ./%s.tar.gz\n' "$(sum "$d/$pkg.tar.gz")" "$pkg" > "$d/SHA256SUMS"
 }
@@ -115,6 +131,17 @@ suite() {
   mkrelease "$FIX" amd64 evil; run
   [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "an archive with paths outside its directory is refused" || fail "evil archive" "$OUT"
   [ ! -e "$work/tmp/evil.txt" ] && pass "and was not unpacked" || fail "was not unpacked"
+
+  newcase apple
+  if tar --version 2>/dev/null | grep -qi bsdtar; then
+    # bsdtar folds ._ files away when listing, so this host's tar cannot see them; get.sh runs on Linux
+    skip "an archive made on macOS is refused (needs GNU tar; bsdtar hides ._ entries, CI runs this)"
+  else
+    mkrelease "$FIX" amd64 apple; run
+    [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "an archive made on macOS (._ files) is refused" || fail "macOS archive refused" "$OUT"
+    case "$OUT" in *"._certsmith-9.9.9-linux-amd64"*"COPYFILE_DISABLE"*) pass "and the message names the file and the fix" ;; *) fail "message names the file and the fix" "$OUT" ;; esac
+    leftover && pass "and nothing is left behind" || fail "nothing left behind"
+  fi
 
   newcase sudo
   STUB_UID=1000 run --no-firewall

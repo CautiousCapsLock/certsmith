@@ -72,8 +72,13 @@ fi
 say "Checksum verified."
 
 # The archive must unpack only into its own directory.
-if tar tzf "$TMP/$PKG.tar.gz" | grep -qv "^$PKG/"; then
-  die "the archive contains paths outside $PKG/; nothing was installed"
+stray=$(tar tzf "$TMP/$PKG.tar.gz" | grep -v "^$PKG/" | head -1 || true)
+if [ -n "$stray" ]; then
+  hint=""
+  case "$stray" in
+    ._*|*/._*) hint=" (names starting with ._ are macOS metadata; an archive made on a Mac needs COPYFILE_DISABLE=1 tar --no-xattrs)" ;;
+  esac
+  die "the archive contains a path outside $PKG/: $stray$hint; nothing was installed"
 fi
 tar xzf "$TMP/$PKG.tar.gz" -C "$TMP"
 [ -f "$TMP/$PKG/install.sh" ] || die "the archive has no install.sh"
