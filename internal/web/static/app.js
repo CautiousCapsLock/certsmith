@@ -273,6 +273,36 @@ function chipTitled(text, cls, title) { const c = chip(text, cls); c.title = tit
 
 function chip(text, cls) { return h('span', { class: 'chip ' + (cls || '') }, text); }
 
+// Puts text on the clipboard. navigator.clipboard exists only in a secure context (HTTPS or localhost), and
+// this page may be served over plain HTTP behind a proxy, so a hidden text box and the older copy command
+// are the fallback. Resolves to whether it worked.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+  } catch (_) { /* refused: try the fallback */ }
+  const ta = h('textarea', { 'aria-hidden': 'true', readonly: true, style: 'position:fixed;top:-1000px;opacity:0' }, text);
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+// A command to paste into a terminal: shown as text, selectable with one click, with a Copy button.
+function commandBlock(text) {
+  let timer;
+  const btn = h('button', { type: 'button', class: 'btn small ghost copybtn', title: 'Copy the command to the clipboard' }, 'Copy');
+  btn.addEventListener('click', async () => {
+    const ok = await copyText(text);
+    clearTimeout(timer);
+    btn.textContent = ok ? 'Copied' : 'Not copied';
+    toast(ok ? 'Command copied to the clipboard' : 'Could not copy: select the command and copy it yourself', !ok);
+    timer = setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+  return h('div', { class: 'cmdwrap' }, h('pre', { class: 'cmd' }, text), btn);
+}
+
 // ---- overview ---------------------------------------------------------------------
 // A device whose certificate is installed by hand (no API to do it): CertSmith only checks what it serves.
 const isManual = kind => !!((schema.targets.find(d => d.kind === kind) || {}).manual);
@@ -2016,7 +2046,7 @@ function renderSettings() {
             link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, 'Release notes') : null));
           kids.push(h('p', { class: 'meta', style: 'margin:6px 0 4px' },
             'To update, run this on the server that runs CertSmith, as root or with sudo. Settings and data are kept, and the previous version is restored if the new one does not start.'));
-          kids.push(h('pre', { class: 'cmd' }, 'bash -c "$(wget -nv -O- https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
+          kids.push(commandBlock('bash -c "$(wget -nv -O- https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
         } else if (info.latest) {
           kids.push(h('div', { class: 'swline' }, chip('Up to date', 'ok'),
             h('span', { class: 'meta' }, 'The latest published release is ' + plainVersion(info.latest) + '.')));

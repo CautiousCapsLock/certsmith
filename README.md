@@ -28,7 +28,11 @@ bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certs
 
 The script downloads the latest release for the host architecture, verifies its SHA-256 checksum, and runs the installer packaged with it. The installer prints the address of the web interface and the fingerprint of its certificate.
 
-Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`, and the script itself uses `wget` when it is present and `curl` otherwise. Where `curl` is the only tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first: `apt-get update && apt-get install -y wget`.
+Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`, and the script itself uses `wget` when it is present and `curl` otherwise. Where `curl` is the only tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first:
+
+```sh
+apt-get update && apt-get install -y wget
+```
 
 The commands read from GitHub without credentials. If a command returns at once and prints nothing, the download failed: run `wget -nv -O-` with the same address on its own to see the error. A host that cannot reach GitHub can have the release archive copied to it and installed by hand (see [Installation](#installation)).
 
@@ -198,7 +202,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
   -ldflags "-s -w -X main.version=0.0.0-dev" -o dist/certsmith-linux-amd64 ./cmd/certsmith
 ```
 
-To run without installing: `go run ./cmd/certsmith -data ./data -listen 127.0.0.1:8443`.
+To run without installing:
+
+```sh
+go run ./cmd/certsmith -data ./data -listen 127.0.0.1:8443
+```
 
 ### Repository layout
 

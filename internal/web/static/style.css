@@ -181,6 +181,10 @@ details.verbose.setgroup > summary:hover { border-color: var(--muted); }
 /* Settings > Software */
 .swline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 6px; }
 .swline a { color: var(--accent); }
+/* a command with its Copy button at the top right; the text leaves room for the button */
+.cmdwrap { position: relative; margin: 8px 0 12px; }
+.cmdwrap pre.cmd { margin: 0; padding-right: 76px; }
+.cmdwrap .copybtn { position: absolute; top: 6px; right: 6px; }
 pre.cmd { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 
 .authwrap { min-height: 70vh; display: flex; align-items: center; justify-content: center; }
