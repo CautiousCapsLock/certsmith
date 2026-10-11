@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,8 +212,19 @@ func (e *Engine) StartIssue(id string) error { return e.start("cert", id, e.issu
 // StartDeploy begins a deployment in the background.
 func (e *Engine) StartDeploy(id string) error { return e.start("target", id, e.deploy) }
 
+// idRe is what an identifier looks like (CertSmith makes 10 hex characters). One that arrived in a request
+// is used in a path only in this form, so it cannot name anything but a directory of its own.
+var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+func safeID(id string) string {
+	if idRe.MatchString(id) {
+		return id
+	}
+	return "_invalid"
+}
+
 func (e *Engine) issueLogPath(id string) string {
-	return filepath.Join(e.DataDir, "certs", filepath.Base(id), "issue.log")
+	return filepath.Join(e.DataDir, "certs", safeID(id), "issue.log")
 }
 
 // stageWriter passes the ACME log through and turns the lines that mark a change of phase into a
@@ -822,7 +834,7 @@ func (e *Engine) DiscoverTarget(ctx context.Context, id, kind string, cfg map[st
 const keepCalls = 300
 
 func (e *Engine) callsPath(id string) string {
-	return filepath.Join(e.DataDir, "targets", filepath.Base(id), "calls.json")
+	return filepath.Join(e.DataDir, "targets", safeID(id), "calls.json")
 }
 
 // recordCalls appends calls to the target's history, dropping the oldest beyond keepCalls.
@@ -842,12 +854,12 @@ func (e *Engine) recordCalls(id string, calls []model.APICall) {
 		return
 	}
 	path := e.callsPath(id)
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		e.Log.Warn("cannot keep API call history", "target", id, "err", err)
 		return
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o640); err == nil {
+	if err := os.WriteFile(tmp, b, 0o600); err == nil {
 		err = os.Rename(tmp, path)
 	}
 	if err != nil {
