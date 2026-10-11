@@ -109,6 +109,10 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
 		}
 	}
+	// the ZTNA panel leaves room below it, so its button does not touch the next field
+	if !regexp.MustCompile(`\.ztnapanel \{[^}]*margin: [^;]*18px[^}]*padding-bottom`).MatchString(get("/style.css")) {
+		t.Error("the ZTNA panel must have space beneath it")
+	}
 	// the ZTNA panel sits under the function tick boxes, above Verify addresses
 	if !strings.Contains(get("/app.js"), "(form.by.fos_version || form.by.ztna).wrap") {
 		t.Error("the ZTNA panel must be placed between the tick boxes and Verify addresses")
