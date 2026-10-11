@@ -109,6 +109,12 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
 		}
 	}
+	// the test button sits inline with the token, and the sections of a target are separated by rules
+	for _, want := range []string{"class: 'tokenrow'", "'sectionrule'"} {
+		if !strings.Contains(get("/app.js"), want) {
+			t.Errorf("the target dialog layout is incomplete: missing %q", want)
+		}
+	}
 	// the test block is closed by a rule, between the credentials and the choices
 	if !regexp.MustCompile(`\.testblock \{[^}]*border-bottom`).MatchString(get("/style.css")) {
 		t.Error("the Test connection block must end with a rule")

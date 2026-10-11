@@ -95,6 +95,13 @@ h2 { font-size: 15px; margin: 0; }
 /* room below, so the button does not run into the next field, and a rule to close the section */
 /* a rule closes the test, so it reads as its own step above the choices it unlocks */
 .testblock { margin: 2px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+/* the test button inline with the token, and its answer under the field */
+.tokenrow { display: flex; gap: 8px; align-items: flex-start; }
+.tokenrow .pwwrap { flex: 1; min-width: 0; }
+.tokenrow > .btn { flex: none; }
+.field > .testmsg { display: block; margin-top: 6px; }
+/* a rule above a section of a target's settings */
+.field.sectionrule { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; }
 .testblock .testmsg { flex: 1; }
 .ztnapanel { margin: 14px 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 table.list.ztna { margin: 8px 0; font-size: 12.5px; }

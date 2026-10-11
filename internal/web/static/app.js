@@ -1013,6 +1013,8 @@ function buildFields(fields, values) {
   els.forEach(e => e.onChange(() => { vis(); listeners.forEach(fn => fn()); }));
   vis();
 
+  // a rule above the choices and the extra addresses, so the sections of a target read as steps
+  for (const e of els) if (e.f.type === 'checks' || e.f.key === 'verify') e.wrap.classList.add('sectionrule');
   const main = [], adv = [], rows = {};
   for (const e of els) {
     const into = e.f.advanced ? adv : main;
@@ -1416,10 +1418,26 @@ function pluginForm(kinds, current, extra, opts) {
     // Test connection sits right under the address and the token: they are all it needs, and a pass
     // goes on to show what the device offers (see afterTest)
     if (opts.testBlock) {
-      opts.testBlock.style.display = d.kind === 'watch' ? 'none' : '';
+      const block = opts.testBlock, btn = opts.testBtn, msg = opts.testMsg;
       const secret = d.fields.find(f => f.type === 'password' && f.secret && form.by[f.key]);
-      const at = secret ? form.by[secret.key].wrap : (form.rows.conn || holder.lastElementChild);
-      if (at) at.after(opts.testBlock);
+      if (d.kind === 'watch') {
+        block.style.display = 'none'; // nothing to test
+      } else if (secret) {
+        // inline with the token: the button to its right, the answer beneath it
+        const wrap = form.by[secret.key].wrap, pw = wrap.querySelector('.pwwrap');
+        const row = h('div', { class: 'tokenrow' });
+        pw.replaceWith(row);
+        row.append(pw, btn);
+        wrap.append(msg);
+        block.style.display = 'none';
+      } else {
+        // no token to sit beside (FortiClient EMS, files): its own line under the address
+        block.replaceChildren(h('div', { class: 'row' }, btn, msg),
+          h('div', { class: 'help' }, 'A passing test reads the device and shows what it can use the certificate for.'));
+        block.style.display = '';
+        const at = form.rows.conn || holder.lastElementChild;
+        if (at) at.after(block);
+      }
     }
     if (form.by.pin_sha256) { // a certificate the user chose to trust: say so, and let them undo it
       const trust = h('div', { class: 'trustline' });
@@ -1670,13 +1688,12 @@ function targetForm(t, presetCert, presetKind) {
   const en = fieldEl({ key: 'enabled', label: 'Enabled', type: 'bool' }, t.enabled);
   const testMsg = h('span', { class: 'testmsg' });
   // the test sits under the address and token (placed by pluginForm); runTest is declared below
-  const testBlock = own ? null : h('div', { class: 'testblock' },
-    h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'btn', onclick: e => submit(e.target, runTest) }, 'Test connection'), testMsg),
-    h('div', { class: 'help' }, 'Needs only the address and the token. A passing test reads the device and shows what it can use the certificate for.'));
+  const testBtn = own ? null : h('button', { type: 'button', class: 'btn', title: 'Needs only the address and the credentials. A passing test reads the device and shows what it can use the certificate for.',
+    onclick: e => submit(e.target, runTest) }, 'Test connection');
+  const testBlock = own ? null : h('div', { class: 'testblock' });
   const pf = pluginForm(kinds, Object.assign({ id: isNew ? '' : t.id }, t),
     h('div', {}, name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert), en.wrap),
-    { vendors: true, testBlock, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
+    { vendors: true, testBlock, testBtn, testMsg, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
 
   // Runs the connection test. A device whose certificate cannot be verified is not
   // just reported as failed: the user is shown it and asked whether to trust it, and
