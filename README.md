@@ -212,7 +212,7 @@ go run ./cmd/certsmith -data ./data -listen 127.0.0.1:8443
 | `internal/store`, `internal/secret`, `internal/model` | Persistence, encryption of stored secrets and data types. |
 | `internal/update` | The release check. |
 | `deploy/` | systemd unit and the installer packaged with each release. |
-| `docs/` | [Reference](docs/REFERENCE.md), [dependency policy](docs/DEPENDENCIES.md), and plans for the [installer and appliance](docs/APPLIANCE.md), [target plugins](docs/PLUGINS.md) and [DNS-PERSIST-01](docs/DNS-PERSIST.md). |
+| `docs/` | [Reference](docs/REFERENCE.md), [dependency policy](docs/DEPENDENCIES.md), [release procedure](docs/RELEASING.md), and plans for the [installer and appliance](docs/APPLIANCE.md), [target plugins](docs/PLUGINS.md) and [DNS-PERSIST-01](docs/DNS-PERSIST.md). |
 | `scripts/` | Repository checks, installer tests, dependency updates and the third-party notices generator. |
 
 ## Status
