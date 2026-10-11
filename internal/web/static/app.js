@@ -104,7 +104,8 @@ async function refresh(opts) {
     updateInfo = res.update || null;
     for (const k of ['dns_providers', 'certificates', 'targets', 'events', 'pending_dns']) S[k] = S[k] || [];
     if (!schema) schema = await api('GET', '/api/schema');
-    if (!modalOpen && !authing && !(opts && opts.background && userIsEditing())) { render(); lastSig = sig; }
+    // never redraw the Settings page over changes that are not saved: the data is kept up to date, the boxes are left alone
+    if (!modalOpen && !authing && !(opts && opts.background && userIsEditing()) && !(view === 'settings' && settingsUnsaved())) { render(); lastSig = sig; }
   } catch (e) { if (!authing) toast(e.message, true); }
 }
 
@@ -246,14 +247,24 @@ function renderFooter() {
   f.replaceChildren(...kids);
 }
 
+// Unsaved changes on the Settings page: set by renderSettings (null elsewhere). Leaving the page by another
+// tab, by signing out, or by reloading or closing the browser tab asks first.
+let settingsDirtyCheck = null;
+function settingsUnsaved() { try { return !!(settingsDirtyCheck && settingsDirtyCheck()); } catch (_) { return false; } }
+function okToLeaveSettings() {
+  return view !== 'settings' || !settingsUnsaved() || confirm('You have changed settings that are not saved.\n\nLeave this page and lose those changes?');
+}
+window.addEventListener('beforeunload', e => { if (settingsUnsaved()) { e.preventDefault(); e.returnValue = ''; } });
+
 let lastView = null, lastRenderAt = 0;
 function render() {
+  if (view !== 'settings') settingsDirtyCheck = null;
   // The same page redrawn (the automatic refresh): keep the reader's place. A different page starts at the top.
   const keepY = lastView === view ? window.scrollY : 0;
   document.getElementById('logout-btn').textContent = me ? 'Sign out (' + me + ')' : 'Sign out';
   const nav = document.getElementById('nav');
   nav.replaceChildren(...TABS.map(([id, label]) =>
-    h('button', { class: view === id ? 'on' : '', onclick: () => { view = id; render(); } }, label)));
+    h('button', { class: view === id ? 'on' : '', onclick: () => { if (view !== id && !okToLeaveSettings()) return; view = id; render(); } }, label)));
   const v = document.getElementById('view');
   const fn = { overview: renderOverview, targets: renderTargets, dns: renderDNS, settings: renderSettings, events: renderEvents }[view];
   v.replaceChildren(fn());
@@ -2022,6 +2033,11 @@ function renderSettings() {
       to: sm.to.get().split(',').map(x => x.trim()).filter(Boolean) },
   });
   const testMsg = h('span', { class: 'testmsg' });
+  // what the form held when the page was drawn (or was last saved): anything else is an unsaved change
+  let baseline = null; // taken once the page is built: the alert tick boxes exist only then
+  settingsDirtyCheck = () => baseline !== null && JSON.stringify(collect()) !== baseline;
+  const unsavedNote = h('span', { class: 'unsaved' });
+  const paintUnsaved = () => { unsavedNote.textContent = settingsUnsaved() ? '● Unsaved changes' : ''; };
   const curPw = fieldEl({ key: 'cur', label: 'Current password', type: 'password', autocomplete: 'current-password' }, '');
   const pw = fieldEl({ key: 'pw', label: 'New password (minimum 12 characters)', type: 'password', autocomplete: 'new-password' }, '');
   const pw2 = fieldEl({ key: 'pw2', label: 'Confirm new password', type: 'password', autocomplete: 'new-password' }, '');
@@ -2183,7 +2199,7 @@ function renderSettings() {
     h('div', { class: 'stack' }, ...left), h('div', { class: 'stack' }, ...right));
   allBtn.addEventListener('click', () => { const open = bars.every(d => !d.open); bars.forEach(d => { d.open = open; }); });
 
-  return h('div', {},
+  const page = h('div', {},
     h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Settings'),
         h('p', { class: 'sub', style: 'margin:0' }, "Configuration for Let's Encrypt, DNS validation, renewal and monitoring, alerting, the HTTPS certificate for this page, and users.")),
@@ -2196,7 +2212,18 @@ function renderSettings() {
       two([card('Email alerts', 'Alerts sent by email when a certificate is close to expiry, issuing or deployment fails, or a device serves an unexpected certificate.',
              sm.enabled.wrap, pair(sm.host, sm.port), pair(sm.security, sm.username), pair(sm.password, sm.from), sm.to.wrap),
            card('Other alerts', 'Optional additional alert channel.', hook.wrap)],
-          [alertsCard()])),
+          [alertsCard()]),
+      // the test uses what is in the boxes above now, saved or not, so it belongs with them
+      h('div', { class: 'testalert' },
+        h('button', { class: 'btn', onclick: async e => {
+          testMsg.className = 'testmsg'; testMsg.textContent = 'Sending…';
+          await submit(e.target, async () => {
+            try { await api('POST', '/api/settings/test-alert', collect()); testMsg.className = 'testmsg ok'; testMsg.textContent = '✓ test alert sent'; }
+            catch (err) { testMsg.className = 'testmsg bad'; testMsg.textContent = '✗ ' + err.message; }
+          });
+        } }, 'Send test alert'),
+        testMsg,
+        h('span', { class: 'meta' }, 'Sends a test message through the email and webhook settings above, as they are now.'))),
     group('server', 'This server', 'The HTTPS certificate of this page, and the installed version',
       two([webUICard()], [softwareCard()]),
       h('div', { class: 'usersrow' }, themeCard())),
@@ -2206,21 +2233,20 @@ function renderSettings() {
       h('div', { class: 'usersrow' }, card('Reverse proxy',
         'If CertSmith is reached through a reverse proxy, list its address here. Sign-in attempts are then counted, limited and recorded against the real client address instead of the proxy, so one person guessing passwords cannot lock everyone else out.',
         proxies.wrap))),
-    h('div', { class: 'savebar' }, testMsg,
-      h('button', { class: 'btn', onclick: async e => {
-        testMsg.className = 'testmsg'; testMsg.textContent = 'Sending…';
-        await submit(e.target, async () => {
-          try { await api('POST', '/api/settings/test-alert', collect()); testMsg.className = 'testmsg ok'; testMsg.textContent = '✓ test alert sent'; }
-          catch (err) { testMsg.className = 'testmsg bad'; testMsg.textContent = '✗ ' + err.message; }
-        });
-      } }, 'Send test alert'),
+    h('div', { class: 'savebar' }, unsavedNote,
       h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
         const next = collect();
         const switched = next.acme_directory !== S.settings.acme_directory;
         await api('PUT', '/api/settings', next);
+        baseline = JSON.stringify(collect()); // saved: nothing is unsaved now
+        paintUnsaved();
         toast(switched ? "Saved. Let's Encrypt certificates will be reissued from " + next.acme_directory + ' and redeployed to targets already deployed to.' : 'Settings saved');
         await refresh();
       }) }, 'Save settings')));
+  baseline = JSON.stringify(collect());
+  page.addEventListener('input', paintUnsaved);
+  page.addEventListener('change', paintUnsaved);
+  return page;
 }
 
 // The Readme opens in front of the page, like the other dialogs, as wide as it needs to be. Clicking
@@ -2258,6 +2284,7 @@ async function openReadme() {
 // ---- boot ---------------------------------------------------------------------------------
 document.getElementById('readme-btn').addEventListener('click', openReadme);
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  if (!okToLeaveSettings()) return;
   try { await api('POST', '/api/logout'); } catch (_) { /* already signed out */ }
   showAuth('login');
 });

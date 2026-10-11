@@ -199,7 +199,12 @@ details.verbose.setgroup > summary { display: list-item; list-style-position: in
 details.verbose.setgroup > summary:hover { border-color: var(--muted); }
 .setgroup .gtitle { font-size: 15px; font-weight: 700; color: var(--text); }
 .setgroup .ghint { margin-left: 10px; }
-.setgroup > .gbody { margin-top: 12px; }
+.setgroup > .gbody { margin: 0 0 6px 12px; padding: 14px 0 2px 18px; border-left: 2px solid color-mix(in srgb, var(--accent) 40%, var(--line)); }
+details.setgroup[open] > summary { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.testalert { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 4px; }
+.testalert .meta { flex: 1 1 240px; }
+.unsaved { color: var(--warn); font-size: 13px; font-weight: 600; margin-right: auto; }
+@media (max-width: 760px) { .setgroup > .gbody { margin-left: 6px; padding-left: 10px; } }
 .setgroup:not([open]) { margin-bottom: 10px; }
 /* Settings > Software */
 .swline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 6px; }
