@@ -1663,6 +1663,25 @@ function renderSettings() {
       toast('Password changed. Other sessions were signed out.');
     }) }, 'Change password'));
   // The certificate CertSmith's own page is served with: self-signed until the user gives it a real one.
+  // The colour theme is a preference of this browser, applied at once and kept in localStorage.
+  const themeCard = () => {
+    let cur = 'system';
+    try { const t = localStorage.getItem('certsmith.theme'); if (t === 'light' || t === 'dark') cur = t; } catch (_) { /* follow the system */ }
+    const apply = v => {
+      if (v === 'light' || v === 'dark') document.documentElement.setAttribute('data-theme', v);
+      else document.documentElement.removeAttribute('data-theme');
+      try { if (v === 'system') localStorage.removeItem('certsmith.theme'); else localStorage.setItem('certsmith.theme', v); } catch (_) { /* not remembered */ }
+    };
+    const radio = (v, label) => {
+      const input = h('input', { type: 'radio', name: 'theme', value: v });
+      input.checked = v === cur;
+      input.addEventListener('change', () => { if (input.checked) apply(v); });
+      return h('label', {}, input, label);
+    };
+    return card('Appearance', 'The colour theme of this page. It applies at once, and is remembered in this browser only.',
+      h('div', { class: 'radios', role: 'radiogroup', 'aria-label': 'Colour theme' },
+        radio('light', 'Light'), radio('dark', 'Dark'), radio('system', 'Follow system')));
+  };
   const webUICard = () => {
     const mine = S.targets.find(t => t.kind === 'selfui');
     const cert = mine && byId(S.certificates, mine.cert_id);
@@ -1785,7 +1804,8 @@ function renderSettings() {
            card('Other alerts', 'Optional additional alert channel.', hook.wrap)],
           [alertsCard()])),
     group('server', 'This server', 'The HTTPS certificate of this page, and the installed version',
-      two([webUICard()], [softwareCard()])),
+      two([webUICard()], [softwareCard()]),
+      h('div', { class: 'usersrow' }, themeCard())),
     group('users', 'Users', 'Accounts and your own password',
       // users are a wide table with a password form: they get the full width
       h('div', { class: 'usersrow' }, usersCard()),

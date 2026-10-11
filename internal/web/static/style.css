@@ -4,13 +4,24 @@
   --ok-bg: #e5f6ee; --warn-bg: #fdf1dc; --bad-bg: #fbe7e7; --idle-bg: #eef0f4;
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+/* The theme follows the system unless Settings chose one (theme.js sets data-theme on <html>). */
+:root { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1218; --panel: #171c25; --line: #272e3a; --text: #e6e9ef; --muted: #8b95a7;
     --accent: #5b9bff; --ok: #3ecf8e; --warn: #f0b04a; --bad: #ff7676;
     --ok-bg: #12301f; --warn-bg: #33270f; --bad-bg: #371a1a; --idle-bg: #222936;
   }
 }
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171c25; --line: #272e3a; --text: #e6e9ef; --muted: #8b95a7;
+  --accent: #5b9bff; --ok: #3ecf8e; --warn: #f0b04a; --bad: #ff7676;
+  --ok-bg: #12301f; --warn-bg: #33270f; --bad-bg: #371a1a; --idle-bg: #222936;
+}
+.radios { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+.radios label { display: flex; gap: 7px; align-items: center; font-weight: 500; cursor: pointer; }
 * { box-sizing: border-box; }
 /* Reserve room for the vertical scrollbar on every page, so switching between a short page and a long
    one does not change the width of the content. */

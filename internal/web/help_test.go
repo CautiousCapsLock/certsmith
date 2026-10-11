@@ -87,6 +87,16 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 		!regexp.MustCompile(`h\('td', \{ class: 'act' \}, h\('button', \{ class: 'btn small ghost', onclick: \(\) => providerForm\(p\)`).MatchString(get("/app.js")) {
 		t.Error("the Edit buttons of the providers tables must be right-aligned in an 'act' cell")
 	}
+	// the theme: chosen on the Settings page, applied before the page draws, and the CSS honours it
+	if !strings.Contains(get("/"), `src="theme.js"`) || !strings.Contains(get("/theme.js"), "certsmith.theme") ||
+		!strings.Contains(get("/style.css"), `:root[data-theme="light"]`) || !strings.Contains(get("/style.css"), `:root[data-theme="dark"]`) {
+		t.Error("the colour theme must be applied from theme.js and honoured by the stylesheet")
+	}
+	for _, choice := range []string{"radio('light', 'Light')", "radio('dark', 'Dark')", "radio('system', 'Follow system')"} {
+		if !strings.Contains(get("/app.js"), choice) {
+			t.Errorf("Settings must offer the theme choice %s", choice)
+		}
+	}
 	if !regexp.MustCompile(`section\('Imported certificates'`).MatchString(get("/app.js")) {
 		t.Error("the providers page must list imported certificates in their own section")
 	}
