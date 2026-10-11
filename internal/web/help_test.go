@@ -120,8 +120,9 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 		t.Error("the Test connection block must end with a rule")
 	}
 	// the ZTNA panel leaves room below it, so its button does not touch the next field
-	if !regexp.MustCompile(`\.ztnapanel \{[^}]*margin: [^;]*18px[^}]*padding-bottom`).MatchString(get("/style.css")) {
-		t.Error("the ZTNA panel must have space beneath it")
+	if css := get("/style.css"); !regexp.MustCompile(`\.ztnapanel \{[^}]*margin:`).MatchString(css) ||
+		regexp.MustCompile(`\.ztnapanel \{[^}]*border-bottom`).MatchString(css) {
+		t.Error("the ZTNA panel needs space beneath it and no rule of its own: Verify addresses draws the one rule")
 	}
 	// the ZTNA panel sits under the function tick boxes, above Verify addresses
 	if !strings.Contains(get("/app.js"), "(form.by.ipsec_phase1 || form.by.uses || form.by.fos_version || form.by.ztna).wrap") {

@@ -103,7 +103,8 @@ h2 { font-size: 15px; margin: 0; }
 /* a rule above a section of a target's settings */
 .field.sectionrule { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 16px; }
 .testblock .testmsg { flex: 1; }
-.ztnapanel { margin: 14px 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+/* the rule below it is the one above "Verify addresses" (.sectionrule): there is only one */
+.ztnapanel { margin: 16px 0 4px; }
 table.list.ztna { margin: 8px 0; font-size: 12.5px; }
 table.list.ztna td { padding: 7px 10px; }
 .meta.small { font-size: 11.5px; word-break: normal; overflow-wrap: break-word; }
