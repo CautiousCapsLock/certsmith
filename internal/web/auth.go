@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,12 +103,31 @@ func (s *Server) mac(exp int64, name, hash string) string {
 }
 
 func (s *Server) issue(w http.ResponseWriter, r *http.Request, u model.User) {
-	exp := time.Now().Add(sessionTTL).Unix()
+	now := time.Now()
+	if now.Before(u.SessionsFrom) { // signed in again within a second of signing out: not before the sign-out
+		now = u.SessionsFrom
+	}
+	exp := now.Add(sessionTTL).Unix()
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: fmt.Sprintf("%d.%s.%s", exp, hex.EncodeToString([]byte(u.Name)), s.mac(exp, u.Name, u.Hash)),
 		Path: "/", MaxAge: int(sessionTTL.Seconds()),
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode,
+		HttpOnly: true, Secure: s.secure(r), SameSite: http.SameSiteStrictMode,
 	})
+}
+
+// secure reports whether the browser reached this server over HTTPS: the connection is TLS, or it comes
+// from a trusted proxy (Settings) that says it received the request over HTTPS. It decides the Secure flag
+// of the session cookie and the Strict-Transport-Security header, so a server behind a proxy that ends
+// TLS, run with -no-tls, still marks its cookie Secure.
+func (s *Server) secure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https") {
+		return false
+	}
+	c, err := netip.ParseAddr(connHost(r))
+	return err == nil && inPrefixes(c, s.trustedProxies())
 }
 
 // cookieUser returns the signed-in user for a valid session cookie.
@@ -130,6 +150,10 @@ func (s *Server) cookieUser(r *http.Request) (model.User, bool) {
 	}
 	u, ok := s.findUser(string(nameBytes))
 	if !ok || !hmac.Equal([]byte(parts[2]), []byte(s.mac(exp, u.Name, u.Hash))) {
+		return model.User{}, false
+	}
+	// the cookie expires sessionTTL after it was issued: a session from before the last sign-out is over
+	if issued := exp - int64(sessionTTL.Seconds()); !u.SessionsFrom.IsZero() && issued < u.SessionsFrom.Unix() {
 		return model.User{}, false
 	}
 	return u, true
@@ -236,9 +260,13 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "+
+			"base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Cache-Control", "no-store")
-		if r.TLS != nil {
+		if s.secure(r) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 
@@ -403,10 +431,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if u, ok := s.cookieUser(r); ok {
+		// a cookie copied before signing out must not keep working until it expires
+		_ = s.St.Update(func(db *model.DB) error {
+			for i := range db.Users {
+				if db.Users[i].Name == u.Name {
+					// the next whole second: a cookie is dated to the second, so one issued in the second of
+					// the sign-out is still before this
+					db.Users[i].SessionsFrom = time.Now().Truncate(time.Second).Add(time.Second)
+				}
+			}
+			return nil
+		})
 		s.auditAs(r, u.Name, "signout", u.Name, "")
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
+		HttpOnly: true, Secure: s.secure(r), SameSite: http.SameSiteStrictMode})
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

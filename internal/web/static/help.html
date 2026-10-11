@@ -260,7 +260,7 @@
 <ul>
   <li>All users listed under <strong>Settings &rarr; Users</strong> can sign in and have full administrative access. There are no roles.</li>
   <li><strong>Add user</strong> asks for a username and the new user's password twice. <strong>Reset password</strong> asks for the new password twice. Both, and <strong>Delete</strong>, also ask for <em>your own</em> password to confirm, so that a signed-in browser alone cannot create, change or remove accounts.</li>
-  <li>Change the signed-in user's password in the <em>Your password</em> section of the same card. Doing so ends the user's other sessions.</li>
+  <li>Change the signed-in user's password in the <em>Your password</em> section of the same card. Doing so ends the user's other sessions. <strong>Sign out</strong> ends all of that user's sessions, in every browser, not only the one you are using.</li>
   <li>After 8 failed sign-ins within 10 minutes from one address, or for one user, further sign-ins are refused until the failures age out (at most 10 minutes). It is a temporary lock held in memory: it is not a permanent ban and a restart clears it. Without a trusted proxy configured, every connection through a reverse proxy counts as the proxy's address, so failures from anyone lock sign-in for everyone for that time. Every sign-in, successful, failed or refused (once per lockout), is recorded in the <a href="#events">audit log</a>.</li>
   <li>Scripts can call the API with HTTP Basic authentication using any user.</li>
 </ul>

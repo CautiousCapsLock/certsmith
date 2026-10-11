@@ -233,6 +233,10 @@ type User struct {
 	// the latest sign-in through the sign-in page (a script using HTTP basic authentication does not count)
 	LastLogin     time.Time `json:"last_login,omitzero"`
 	LastLoginFrom string    `json:"last_login_from,omitempty"` // as in the audit log: the address, and the proxy it came through
+
+	// SessionsFrom is when the user last signed out: a session cookie issued before it is no longer
+	// accepted, so signing out ends a stolen cookie as well as the browser's own.
+	SessionsFrom time.Time `json:"sessions_from,omitzero"`
 }
 
 // PendingDNS is a TXT record CertSmith created for a DNS test and has not yet confirmed removed.

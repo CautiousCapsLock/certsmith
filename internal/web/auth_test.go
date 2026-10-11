@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -583,7 +584,7 @@ func TestBlockedAttemptsDoNotExtendTheLockAndASuccessClearsTheCount(t *testing.T
 // ---- trusted proxies ----
 
 func TestForwardedAddressesAreBelievedOnlyFromTrustedProxies(t *testing.T) {
-	_, trusted, err := parseProxies([]string{"10.254.254.5", " 192.0.2.0/24 ", "2001:db8::1", "10.254.254.5"})
+	_, trusted, err := parseProxies([]string{"198.51.100.5", " 192.0.2.0/24 ", "2001:db8::1", "198.51.100.5"})
 	if err != nil || len(trusted) != 3 {
 		t.Fatalf("parse: %v %v", trusted, err)
 	}
@@ -594,11 +595,11 @@ func TestForwardedAddressesAreBelievedOnlyFromTrustedProxies(t *testing.T) {
 		via        bool
 	}{
 		{"a stranger cannot name a client", "198.51.100.7", []string{"203.0.113.9"}, "198.51.100.7", false},
-		{"a trusted proxy names the client", "10.254.254.5", []string{"203.0.113.9"}, "203.0.113.9", true},
-		{"the right-most untrusted entry wins, so a forged left entry is ignored", "10.254.254.5", []string{"1.2.3.4, 203.0.113.9"}, "203.0.113.9", true},
-		{"a chain of trusted proxies is walked through", "10.254.254.5", []string{"203.0.113.9, 192.0.2.77"}, "203.0.113.9", true},
-		{"no header from a trusted proxy is the proxy", "10.254.254.5", nil, "10.254.254.5", false},
-		{"a header that is not an address is not believed", "10.254.254.5", []string{"not-an-ip"}, "10.254.254.5", false},
+		{"a trusted proxy names the client", "198.51.100.5", []string{"203.0.113.9"}, "203.0.113.9", true},
+		{"the right-most untrusted entry wins, so a forged left entry is ignored", "198.51.100.5", []string{"1.2.3.4, 203.0.113.9"}, "203.0.113.9", true},
+		{"a chain of trusted proxies is walked through", "198.51.100.5", []string{"203.0.113.9, 192.0.2.77"}, "203.0.113.9", true},
+		{"no header from a trusted proxy is the proxy", "198.51.100.5", nil, "198.51.100.5", false},
+		{"a header that is not an address is not believed", "198.51.100.5", []string{"not-an-ip"}, "198.51.100.5", false},
 		{"an IPv6 client", "2001:db8::1", []string{"2001:db8:abcd::7"}, "2001:db8:abcd::7", true},
 	} {
 		got, via := resolveClient(tc.conn, tc.xff, trusted)
@@ -606,7 +607,7 @@ func TestForwardedAddressesAreBelievedOnlyFromTrustedProxies(t *testing.T) {
 			t.Errorf("%s: got %s via=%v, want %s via=%v", tc.name, got, via, tc.want, tc.via)
 		}
 	}
-	if got, via := resolveClient("10.254.254.5", []string{"203.0.113.9"}, nil); got != "10.254.254.5" || via {
+	if got, via := resolveClient("198.51.100.5", []string{"203.0.113.9"}, nil); got != "198.51.100.5" || via {
 		t.Errorf("with no proxy configured the connection is the client, got %s via=%v", got, via)
 	}
 	if _, _, err := parseProxies([]string{"not an address"}); err == nil {
@@ -676,13 +677,13 @@ func TestTrustedProxiesAreValidatedAndNormalisedWhenSaved(t *testing.T) {
 	}
 	_ = json.Unmarshal([]byte(body), &st)
 	set, _ := st.DB["settings"].(map[string]any)
-	set["trusted_proxies"] = []string{"10.254.254.5", "192.0.2.17/24"}
+	set["trusted_proxies"] = []string{"198.51.100.5", "192.0.2.17/24"}
 	if code, body, _ := call(t, c, "PUT", srv.URL+"/api/settings", set, false, nil); code != 200 {
 		t.Fatalf("save: %d %s", code, body)
 	}
 	got := ws.St.Snapshot().Settings.TrustedProxies
-	if len(got) != 2 || got[0] != "10.254.254.5/32" || got[1] != "192.0.2.0/24" {
-		t.Errorf("stored = %v, want the normal form 10.254.254.5/32 and 192.0.2.0/24", got)
+	if len(got) != 2 || got[0] != "198.51.100.5/32" || got[1] != "192.0.2.0/24" {
+		t.Errorf("stored = %v, want the normal form 198.51.100.5/32 and 192.0.2.0/24", got)
 	}
 	set["trusted_proxies"] = []string{"proxy.example.com"}
 	if code, body, _ := call(t, c, "PUT", srv.URL+"/api/settings", set, false, nil); code != 400 || !strings.Contains(body, "trusted proxies") {
@@ -710,5 +711,70 @@ func TestCertificatesToKeepOnADeviceDefaultsToThreeAndIsBounded(t *testing.T) {
 		if got := ws.St.Snapshot().Settings.KeepOnDevice; got != want {
 			t.Errorf("saved %d -> %d, want %d", in, got, want)
 		}
+	}
+}
+
+// A session cookie that was copied before signing out must not keep working until it expires.
+func TestSigningOutEndsACopiedSessionCookie(t *testing.T) {
+	srv, _ := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	u, _ := url.Parse(srv.URL)
+	var cookie *http.Cookie
+	for _, ck := range c.Jar.Cookies(u) {
+		if ck.Name == cookieName {
+			cookie = ck
+		}
+	}
+	if cookie == nil {
+		t.Fatal("no session cookie after sign-in")
+	}
+	copied := func() int {
+		code, _, _ := call(t, &http.Client{}, "GET", srv.URL+"/api/state", nil, false, func(r *http.Request) { r.AddCookie(cookie) })
+		return code
+	}
+	if code := copied(); code != 200 {
+		t.Fatalf("the copied cookie must work while signed in: %d", code)
+	}
+	if code, _, _ := call(t, c, "POST", srv.URL+"/api/logout", nil, false, nil); code != 200 {
+		t.Fatalf("logout: %d", code)
+	}
+	if code := copied(); code != 401 {
+		t.Fatalf("the copied cookie must stop working at sign-out: %d", code)
+	}
+	// a new sign-in works, and is not caught by the earlier sign-out
+	if _, code := loginAs(t, srv, "admin", pw1); code != 200 {
+		t.Fatalf("signing in again: %d", code)
+	}
+}
+
+// The cookie is marked Secure when the browser used HTTPS, which behind a proxy that ends TLS is told by
+// X-Forwarded-Proto: believed only from a proxy listed under Settings.
+func TestSessionCookieIsSecureBehindATrustedTLSProxy(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	secure := func() bool {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/login", strings.NewReader(`{"username":"admin","password":"`+pw1+`"}`))
+		req.Header.Set("X-Certsmith", "1")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		for _, ck := range resp.Cookies() {
+			if ck.Name == cookieName {
+				return ck.Secure
+			}
+		}
+		t.Fatal("no session cookie")
+		return false
+	}
+	if secure() {
+		t.Error("X-Forwarded-Proto from an address that is not a trusted proxy must be ignored")
+	}
+	_ = ws.St.Update(func(db *model.DB) error { db.Settings.TrustedProxies = []string{"127.0.0.1"}; return nil })
+	if !secure() {
+		t.Error("X-Forwarded-Proto: https from a trusted proxy must mark the cookie Secure")
 	}
 }
