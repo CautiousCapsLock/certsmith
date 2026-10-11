@@ -114,7 +114,7 @@ let authing = false;
 function authCard(...kids) {
   return h('div', { class: 'authwrap' }, h('div', { class: 'authcard' },
     h('div', { class: 'row', style: 'justify-content:center;margin-bottom:4px' },
-      h('img', { class: 'logo', src: 'favicon.svg', alt: '', width: 30, height: 30 }), h('h1', { style: 'margin:0' }, 'CertSmith')),
+      h('img', { class: 'logo', src: 'logo.png', alt: '', width: 38, height: 38 }), h('h1', { style: 'margin:0' }, 'CertSmith')),
     ...kids));
 }
 
@@ -302,6 +302,27 @@ function targetAddress(t) {
   return watch.length ? watch[0] + (watch.length > 1 ? ' +' + (watch.length - 1) : '') : '';
 }
 
+// What a failed live check means, in words. The raw error stays visible underneath, because the
+// address and the exact cause are what somebody troubleshooting needs.
+function describeProbeError(err) {
+  const e = String(err || '');
+  if (/i\/o timeout|timed out|deadline exceeded/i.test(e)) return 'No answer: the connection timed out. The device may be switched off, or something is blocking the port.';
+  if (/connection refused/i.test(e)) return 'The device refused the connection: nothing is listening on that port.';
+  if (/no route to host|network is unreachable/i.test(e)) return 'No route to the device. Check its address and the network path.';
+  if (/no such host|server misbehaving|lookup /i.test(e)) return 'The name could not be resolved in DNS.';
+  if (/connection reset|EOF|broken pipe/i.test(e)) return 'The device closed the connection. It may be restarting.';
+  if (/tls|handshake|certificate|x509/i.test(e)) return 'The device answered, but the secure connection could not be set up.';
+  return 'The endpoint could not be checked.';
+}
+
+// The one-line summary a plugin returns after a deployment ("a; b; c") as a short list.
+function deploymentNotes(message) {
+  const items = String(message || '').split(/;\s+/).map(x => x.trim()).filter(Boolean)
+    .map(x => x.charAt(0).toUpperCase() + x.slice(1));
+  if (items.length <= 1) return h('div', { class: 'meta' }, items[0] || '');
+  return h('ul', { class: 'notes' }, items.map(x => h('li', {}, x)));
+}
+
 function probeLine(p, managed) {
   let st;
   if (p.error) st = chip('unreachable', p.bad >= 2 ? 'bad' : 'warn');
@@ -318,7 +339,10 @@ function probeLine(p, managed) {
     }
     kids.push(h('span', { class: 'meta' }, (p.subject || '?') + ' · ' + (p.issuer || '?')));
   } else {
-    kids.push(h('span', { class: 'err' }, p.error));
+    // the reason on its own line, in words, with the exact error beneath it
+    kids.push(h('div', { class: 'perr' },
+      h('div', { class: 'err' }, describeProbeError(p.error)),
+      h('div', { class: 'meta mono small' }, p.error)));
   }
   return h('div', { class: 'probe', title: 'checked ' + ago(p.checked_at) }, kids);
 }
@@ -409,7 +433,7 @@ function targetRow(t, c) {
     h('div', {}, status),
     h('div', {},
       t.last_error ? h('div', { class: 'err' }, t.last_error) : null,
-      t.message && !t.last_error && t.kind !== 'watch' ? h('div', { class: 'meta' }, t.message) : null,
+      t.message && !t.last_error && t.kind !== 'watch' ? deploymentNotes(t.message) : null,
       (t.probes || []).map(p => probeLine(p, !!c)),
       !(t.probes || []).length && t.kind !== 'watch'
         ? h('div', { class: 'meta' }, ((schema.targets.find(d => d.kind === t.kind) || {}).auto_verify) ? 'waiting for the first live check' : 'no address to check') : null),

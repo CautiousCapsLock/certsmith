@@ -97,6 +97,12 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("Settings must offer the theme choice %s", choice)
 		}
 	}
+	// an unreachable endpoint is explained in words, with the exact error kept underneath
+	for _, want := range []string{"function describeProbeError(", "No answer: the connection timed out", "the device refused the connection", "function deploymentNotes("} {
+		if !strings.Contains(strings.ToLower(get("/app.js")), strings.ToLower(want)) {
+			t.Errorf("the page must explain a failed endpoint check in words: missing %q", want)
+		}
+	}
 	if !regexp.MustCompile(`section\('Imported certificates'`).MatchString(get("/app.js")) {
 		t.Error("the providers page must list imported certificates in their own section")
 	}
