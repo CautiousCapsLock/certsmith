@@ -171,7 +171,7 @@ suite() {
 
   # a system with only wget (or neither): the same installer, or a message that says what to install
   tools="$work/tools"; rm -rf "$tools"; mkdir -p "$tools"
-  for t in sh awk grep head mktemp rm tar sha256sum shasum openssl cat tr sed dirname basename mkdir cp sort pwd; do
+  for t in sh awk grep head mktemp rm tar gzip sha256sum shasum openssl cat tr sed dirname basename mkdir cp sort pwd; do
     p=$(command -v "$t" 2>/dev/null) && [ -x "$p" ] && ln -s "$p" "$tools/$t"
   done
   only() { # run with a PATH that has the stubs (uname, id, sudo) and just one download tool: wget (default), curl or none
