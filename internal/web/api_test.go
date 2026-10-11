@@ -109,6 +109,44 @@ func TestEditingATargetsSettingsMakesTheNextDeploymentManualAgain(t *testing.T) 
 	}
 }
 
+func TestChangingOnlyTheVerifyAddressesKeepsTheTargetDeployedAndArmed(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	_ = ws.St.Update(func(db *model.DB) error {
+		db.Certificates = append(db.Certificates, model.Certificate{ID: "c1", Name: "c", Domains: []string{"a.example"}, Enabled: true})
+		db.Targets = append(db.Targets, model.Target{ID: "t1", Name: "files", Kind: "files", CertID: "c1", Enabled: true,
+			Config: map[string]string{"dir": "/tmp/a"}, DeployedSerial: "abc", DeployedAt: time.Now(), AutoDeploy: true,
+			Probes: []model.ProbeResult{{Addr: "old.example:443"}}})
+		return nil
+	})
+	state := func() (m model.Target) { ws.St.View(func(db *model.DB) { m = db.Targets[0] }); return }
+	put := func(cfg map[string]string) {
+		t.Helper()
+		if code, body, _ := call(t, c, "PUT", srv.URL+"/api/targets/t1", map[string]any{
+			"name": "files", "kind": "files", "cert_id": "c1", "enabled": true, "config": cfg}, false, nil); code != 200 {
+			t.Fatalf("save failed: %d %s", code, body)
+		}
+	}
+	// a new address to verify: nothing about what is installed changed
+	put(map[string]string{"dir": "/tmp/a", "verify": "new.example:443"})
+	if s := state(); !s.AutoDeploy || s.DeployedSerial != "abc" || s.DeployedAt.IsZero() {
+		t.Fatalf("adding a verify address must not make the target deploy again: %+v", s)
+	}
+	if len(state().Probes) != 0 {
+		t.Error("the endpoint list changed, so the old probe results must be cleared to be checked again")
+	}
+	// the same save repeated changes nothing at all
+	put(map[string]string{"dir": "/tmp/a", "verify": "new.example:443"})
+	if !state().AutoDeploy {
+		t.Fatal("an unchanged save must keep the target armed")
+	}
+	// a setting that decides what is installed still needs a deliberate deployment
+	put(map[string]string{"dir": "/tmp/b", "verify": "new.example:443"})
+	if s := state(); s.AutoDeploy || s.DeployedSerial != "" {
+		t.Fatalf("changing where it deploys must disarm it: %+v", s)
+	}
+}
+
 func TestPauseAndResumeATarget(t *testing.T) {
 	srv, ws := newTestServer(t)
 	c := setupAndLogin(t, srv)

@@ -176,7 +176,7 @@ func (fortiGate) Descriptor() plugin.Descriptor {
 		// the ZTNA servers chosen for replacement; filled by the ZTNA panel, which sits after the fields above
 		plugin.Field{Key: "ztna", Type: "hidden"},
 		// the release the device last reported (set by the ZTNA panel), so the SSL VPN tick can be switched off at once
-		plugin.Field{Key: "fos_version", Type: "hidden"},
+		plugin.Field{Key: "fos_version", Type: "hidden", NoRedeploy: true},
 		verifyField,
 		plugin.Field{Advanced: true, Key: "vdom", Label: "VDOM", Type: "text", Default: "root"},
 		plugin.Field{Advanced: true, Key: "cert_prefix", Label: "Certificate name prefix", Type: "text", Default: "certsmith", Required: true,

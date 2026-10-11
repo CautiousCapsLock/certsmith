@@ -22,7 +22,7 @@ import (
 // verifyField is appended to every target: addresses the engine probes over TLS
 // after deployment (and periodically) to see what is really being served.
 var verifyField = plugin.Field{
-	Key: "verify", Label: "Verify addresses", Type: "textarea",
+	Key: "verify", Label: "Verify addresses", Type: "textarea", NoRedeploy: true,
 	Help: "Optional extra host:port endpoints to check, one per line (for example an SSL VPN on another port).",
 }
 
@@ -57,10 +57,10 @@ func hostPort(cfg map[string]string, defaultPort string) string {
 // shows its details and asks whether to trust it, and that answer is stored as
 // pin_sha256. The others only keep configurations saved by earlier versions working.
 var tlsFields = []plugin.Field{
-	{Key: "pin_sha256", Type: "hidden"},
-	{Key: "ca_pem", Type: "hidden"},
-	{Key: "server_name", Type: "hidden"},
-	{Key: "insecure", Type: "hidden"},
+	{Key: "pin_sha256", Type: "hidden", NoRedeploy: true},
+	{Key: "ca_pem", Type: "hidden", NoRedeploy: true},
+	{Key: "server_name", Type: "hidden", NoRedeploy: true},
+	{Key: "insecure", Type: "hidden", NoRedeploy: true},
 }
 
 // pinSet collects the certificate fingerprints that are trusted for this device:

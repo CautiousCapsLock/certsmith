@@ -49,6 +49,10 @@ type Field struct {
 	// StepsTitle is the text of the link that opens it.
 	Steps      []string `json:"steps,omitempty"`
 	StepsTitle string   `json:"steps_title,omitempty"`
+	// NoRedeploy marks a setting that does not change what is installed on the device (the addresses
+	// to verify, a certificate the user chose to trust, a version a test read). Saving a change to
+	// only such fields keeps the target deployed and armed; any other change needs a fresh deployment.
+	NoRedeploy bool `json:"-"`
 }
 
 // CallDoc documents one API call a target plugin makes, for the "API calls" page in the web

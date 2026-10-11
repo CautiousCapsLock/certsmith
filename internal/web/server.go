@@ -185,6 +185,28 @@ func sameConfig(a, b map[string]string) bool {
 	return true
 }
 
+// sameDeployConfig is sameConfig for the settings that decide what is installed where. Fields the
+// plugin marks NoRedeploy (addresses to verify, a trusted certificate, a version a test read) are
+// left out: changing only those leaves what was deployed exactly as right as it was.
+func sameDeployConfig(d plugin.Descriptor, a, b map[string]string) bool {
+	skip := map[string]bool{}
+	for _, f := range d.Fields {
+		if f.NoRedeploy {
+			skip[f.Key] = true
+		}
+	}
+	keep := func(m map[string]string) map[string]string {
+		out := make(map[string]string, len(m))
+		for k, v := range m {
+			if !skip[k] {
+				out[k] = v
+			}
+		}
+		return out
+	}
+	return sameConfig(keep(a), keep(b))
+}
+
 // normResolver turns what was typed into host:port (53 when no port is given), refusing nonsense.
 // IPv6 addresses may be bare or bracketed.
 func normResolver(s string) (string, error) {
@@ -1107,9 +1129,13 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 			// the form fills in each field's default; apply the same defaults to what was stored,
 			// or every save would look like a change
 			current, _ := p.Descriptor().Validate(t.Config)
-			if t.CertID != in.CertID || t.Kind != in.Kind || !sameConfig(current, merged) {
+			if t.CertID != in.CertID || t.Kind != in.Kind || !sameDeployConfig(p.Descriptor(), current, merged) {
 				// different certificate or settings: it has to be deployed by hand again
 				t.DeployedSerial, t.DeployedAt, t.LastError, t.Probes, t.AutoDeploy, t.Paused = "", time.Time{}, "", nil, false, false
+			} else if !sameConfig(current, merged) {
+				// only what is watched or trusted changed: what was deployed is still right, so it stays
+				// armed, and the endpoints are checked again straight away
+				t.Probes = nil
 			}
 			t.Name, t.Kind, t.CertID, t.Enabled, t.Config = in.Name, in.Kind, in.CertID, in.Enabled, merged
 			return nil
