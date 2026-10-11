@@ -501,7 +501,22 @@ function setCollapsed(ids, collapsed) {
 }
 
 // Is this target in trouble? (a failed deployment, or an endpoint serving the wrong certificate or not answering)
-const targetBad = t => t.enabled && !!(t.last_error || (t.probes || []).some(p => p.error || (!p.match && t.cert_id)));
+// What a target needs from the person, as one of:
+//   'error'   something failed: the deployment, or the device cannot be reached or serves an unexpected certificate
+//   'action'  nothing is wrong, but the current certificate has to be put on the device: an import by hand
+//             (a device with no API), a first deployment nobody has pressed, or a paused target with a new certificate
+//   'ok'      nothing to do (a deployment CertSmith will make by itself counts as ok)
+function targetState(t, c) {
+  if (!t.enabled) return 'ok';
+  const probes = t.probes || [];
+  if (t.last_error || probes.some(p => p.error)) return 'error';
+  if (!c || !c.serial || t.kind === 'watch') return 'ok';
+  if (isManual(t.kind)) return probes.some(p => !p.match) ? 'action' : 'ok';
+  if (t.deployed_serial === c.serial) return probes.some(p => !p.match) ? 'error' : 'ok'; // deployed, yet something else is served
+  if (t.paused || !t.auto_deploy) return 'action';
+  return 'ok'; // pending: it goes out by itself
+}
+const targetBad = (t, c) => targetState(t, c) === 'error';
 
 function certCard(c) {
   const ts = (S.targets || []).filter(t => t.cert_id === c.id);
@@ -518,7 +533,8 @@ function certCard(c) {
       h('div', { class: 'bar ' + cls }, h('i', { style: `width:${Math.max(2, Math.min(100, d / 90 * 100))}%` })));
   }
   const folded = collapsedCerts.has(c.id);
-  const bad = ts.filter(targetBad).length;
+  const states = ts.map(t => targetState(t, c));
+  const bad = states.filter(s => s === 'error').length, needs = states.filter(s => s === 'action').length;
   return h('div', { class: 'card' + (folded ? ' folded' : '') },
     h('div', { class: 'head' },
       // The fold control is a real <details> disclosure with an empty summary, so its triangle is drawn by the
@@ -544,6 +560,7 @@ function certCard(c) {
         folded ? h('div', { class: 'row wrap foldsum' },
           chip(ts.length === 1 ? '1 target' : ts.length + ' targets'),
           bad ? chipTitled('Error', 'bad', (bad === 1 ? '1 target reports' : bad + ' targets report') + ' a problem. Expand the certificate to see which.')
+            : needs ? chipTitled('Action needed', 'warn', (needs === 1 ? '1 target does' : needs + ' targets do') + ' not have the current certificate yet and needs a deployment or a manual import. Expand the certificate to see which.')
             : (ts.length ? chip('OK', 'ok') : null)) : null),
       expiry,
       h('div', { class: 'row' },
@@ -556,6 +573,7 @@ function certCard(c) {
               h('span', { class: 'on' }, spinner(), ' Issuing…'), h('span', { class: 'off' }, '■ Stop'))
           : h('button', { class: 'btn small', onclick: () => act('POST', `/api/certs/${c.id}/renew`, 'Issuance started - the ACME log shows progress') },
               c.serial ? 'Renew now' : 'Issue now'),
+        c.serial && !c.issuing ? h('button', { class: 'btn small ghost', title: 'Download the certificate and its private key as a file, for a device CertSmith cannot deploy to', onclick: () => exportForm(c) }, 'Download') : null,
         h('button', { class: 'btn small ghost', onclick: () => c.source === 'import' ? importedEditForm(c) : certForm(c) }, 'Edit'))),
     folded || c.source === 'import' ? null : logPanel(c),
     folded ? null : h('div', { class: 'targets' },
@@ -567,8 +585,9 @@ function certCard(c) {
 function renderOverview() {
   const certs = S.certificates || [], targets = S.targets || [];
   const root = h('div');
-  const attention = certs.filter(c => c.enabled && (c.last_error || !c.serial || daysLeft(c.not_after) <= S.settings.warn_days)).length;
-  const badTargets = targets.filter(targetBad).length;
+  const attention = certs.filter(c => c.enabled && (c.last_error || !c.serial || daysLeft(c.not_after) <= S.settings.warn_days
+    || targets.some(t => t.cert_id === c.id && targetState(t, c) === 'action'))).length;
+  const badTargets = targets.filter(t => targetBad(t, byId(certs, t.cert_id))).length;
   root.append(
     h('div', { class: 'row between wrap', style: 'margin-bottom:14px' },
       h('div', {}, h('h1', {}, 'Certificates'), h('p', { class: 'sub', style: 'margin:0' },
@@ -733,7 +752,7 @@ const AUDIT_LABELS = {
   'provider.create': 'Provider added', 'provider.update': 'Provider changed', 'provider.delete': 'Provider deleted',
   'provider.dns_test': 'DNS challenge tested', 'provider.check_account': 'CA account checked',
   'cert.create': 'Certificate added', 'cert.update': 'Certificate changed', 'cert.delete': 'Certificate deleted',
-  'cert.import': 'Certificate imported', 'cert.replace': 'Imported certificate replaced',
+  'cert.import': 'Certificate imported', 'cert.replace': 'Imported certificate replaced', 'cert.export': 'Certificate and key downloaded',
   'cert.issue': 'Issuance started', 'cert.cancel': 'Issuance stopped',
   'target.create': 'Target added', 'target.update': 'Target changed', 'target.delete': 'Target deleted',
   'target.deploy': 'Deployment started', 'target.pause': 'Automatic deployment paused', 'target.resume': 'Automatic deployment resumed',
@@ -1093,6 +1112,52 @@ function importForm(c) {
         await api('POST', '/api/certs/' + c.id + '/import', Object.assign({ name: c.name }, await panel.payload()));
         close(); toast('Certificate replaced');
       }) }, 'Replace certificate')]);
+}
+
+// Download a certificate and its private key as a file, to install by hand on a device that has no API
+// (FortiClient EMS, for example). It asks for the person's own password, and the audit log records it.
+function exportForm(c) {
+  const fmtSel = h('select', {}, h('option', { value: 'p12' }, 'PKCS#12 file (.p12), protected by a password'),
+    h('option', { value: 'pem' }, 'PEM files in a zip archive (certificate, chain, full chain and key)'));
+  const pw = fieldEl({ key: 'p12pw', label: 'Password for the file (minimum 8 characters)', type: 'password', autocomplete: 'new-password' }, '');
+  const pw2 = fieldEl({ key: 'p12pw2', label: 'Repeat the password for the file', type: 'password', autocomplete: 'new-password' }, '');
+  const older = fieldEl({ key: 'older', label: 'For an older system: use 3DES and SHA-1 instead of AES-256', type: 'bool',
+    help: 'Only if the device refuses the file with its password. AES-256 is stronger.' }, false);
+  const mine = fieldEl({ key: 'mine', label: 'Your password, to confirm', type: 'password', autocomplete: 'current-password' }, '');
+  const p12Block = h('div', {}, pw.wrap, pw2.wrap, older.wrap);
+  const paint = () => { p12Block.style.display = fmtSel.value === 'p12' ? '' : 'none'; };
+  fmtSel.addEventListener('change', paint); paint();
+  const run = async btn => {
+    if (fmtSel.value === 'p12') {
+      if (pw.get().length < 8) throw new Error('Choose a password of at least 8 characters for the file');
+      if (pw.get() !== pw2.get()) throw new Error('The two passwords for the file do not match');
+    }
+    if (!mine.get()) throw new Error('Enter your own password to confirm');
+    const r = await fetch('/api/certs/' + c.id + '/export', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'X-Certsmith': '1', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: fmtSel.value, password: pw.get(), older: older.get() === 'true', confirm: mine.get() }),
+    });
+    if (!r.ok) {
+      let msg = r.statusText;
+      try { msg = (await r.json()).error || msg; } catch (_) { /* not JSON */ }
+      throw new Error(msg);
+    }
+    const name = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+    const url = URL.createObjectURL(await r.blob());
+    const a = h('a', { href: url, download: name ? name[1] : 'certificate' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return name ? name[1] : 'the file';
+  };
+  modal('Download certificate: ' + c.name,
+    h('div', {},
+      h('div', { class: 'banner warn', style: 'margin:0 0 12px' },
+        'The file contains the private key. Anyone who holds it can act as ' + (c.domains || []).join(', ') + '. Keep it only as long as the import needs it and delete it afterwards. The download is recorded in the audit log.'),
+      h('div', { class: 'field' }, h('label', {}, 'Format'), fmtSel), p12Block, mine.wrap),
+    close => [h('div', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: close }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => { const f = await run(e.target); close(); toast('Downloaded ' + f); }) }, 'Download')]);
 }
 
 // An imported certificate's names, key and dates come from its file, so only its label and whether it

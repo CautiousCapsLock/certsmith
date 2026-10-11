@@ -97,6 +97,18 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("Settings must offer the theme choice %s", choice)
 		}
 	}
+	// the private key can be downloaded for a manual import, behind the user's own password
+	for _, want := range []string{"function exportForm(", "'/export'", "Your password, to confirm", "Certificate and key downloaded"} {
+		if !strings.Contains(get("/app.js"), want) {
+			t.Errorf("the certificate download dialog is incomplete: missing %q", want)
+		}
+	}
+	// a certificate that only needs putting on a device is "Action needed", not an error
+	for _, want := range []string{"function targetState(", "'Action needed'", "needs a deployment or a manual import"} {
+		if !strings.Contains(get("/app.js"), want) {
+			t.Errorf("a target that needs a deployment must be reported as action needed: missing %q", want)
+		}
+	}
 	// a device that is installed by hand says so, and has no Deploy button
 	for _, want := range []string{"const isManual =", "import needed", "isManual(t.kind)"} {
 		if !strings.Contains(get("/app.js"), want) {

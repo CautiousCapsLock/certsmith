@@ -251,7 +251,7 @@
 </figure>
 <ul>
   <li><strong>Certificate operations</strong>: what CertSmith itself did: certificates issued and renewed, deployments, live checks, and the alerts raised or cleared.</li>
-  <li><strong>Admin audit log</strong>: what users did in CertSmith: sign-ins (including failed ones), users created or deleted, passwords changed or reset, settings changed (the setting names, never the values), every check for a newer version (manual, or the automatic daily one with no user), and every provider, certificate and target that was added, changed, deleted, deployed, paused or resumed, with the user and the address they came from.</li>
+  <li><strong>Admin audit log</strong>: what users did in CertSmith: sign-ins (including failed ones), users created or deleted, passwords changed or reset, settings changed (the setting names, never the values), every check for a newer version (manual, or the automatic daily one with no user), every download of a certificate and its private key, and every provider, certificate and target that was added, changed, deleted, deployed, paused or resumed, with the user and the address they came from.</li>
 </ul>
 <p>Both lists have a filter box that narrows the rows as text is entered, for example by user, action, subject or message.</p>
 <p>The audit log never contains passwords, tokens or keys. Behind a reverse proxy, list the proxy under <strong>Settings, Users, Reverse proxy</strong>: the address shown is then the real client's, with the proxy in brackets. Without that setting, an address the proxy reported is shown only as a hint, because anyone who can reach the server directly could forge it.</p>

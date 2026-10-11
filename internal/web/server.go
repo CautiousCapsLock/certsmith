@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/certs/import/check", s.importCheck)
 	mux.HandleFunc("POST /api/certs/import", s.audited("cert.import", "cert", s.importCert))
 	mux.HandleFunc("POST /api/certs/{id}/import", s.audited("cert.replace", "cert", s.replaceCert))
+	mux.HandleFunc("POST /api/certs/{id}/export", s.exportCert)
 	mux.HandleFunc("PUT /api/certs/{id}", s.audited("cert.update", "cert", s.saveCert))
 	mux.HandleFunc("DELETE /api/certs/{id}", s.audited("cert.delete", "cert", s.deleteCert))
 	mux.HandleFunc("POST /api/certs/{id}/renew", s.audited("cert.issue", "cert", s.renewCert))

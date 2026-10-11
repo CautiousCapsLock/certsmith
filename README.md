@@ -63,6 +63,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 | Deployment | FortiGate (REST API), FortiManager and FortiAnalyzer (JSON-RPC), Proxmox VE, generic webhook, local files, monitor-only, and CertSmith's own web interface. FortiClient EMS is monitored, not deployed to: it has no API for installing a server certificate, so the certificate is imported in its console and CertSmith checks the console port (443) and the FortiClient port (8013). |
 | Verification | Scheduled and on-demand checks of the certificate each target is serving: correct certificate, remaining validity and complete chain. |
 | Visibility | Every API call sent to a device is recorded with the device's response and shown beside the target, together with a description of each call a target type can make. |
+| Download | A certificate and its private key can be downloaded as a password-protected PKCS#12 file or as PEM files, to install by hand on a device with no API. It asks for the user's own password and is recorded in the audit log. |
 | Auditing | A log of certificate operations and a separate audit log of administrative actions. Both can be filtered. |
 | Versions | The running version is shown on every page. Once a day the daemon checks whether a newer release has been published and, if so, shows the install command to run. The check can be switched off. |
 
