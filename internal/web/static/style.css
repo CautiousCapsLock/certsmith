@@ -93,7 +93,8 @@ h2 { font-size: 15px; margin: 0; }
 .err { color: var(--bad); font-size: 12.5px; word-break: break-word; }
 .probe .perr { flex-basis: 100%; margin-top: 2px; }
 /* room below, so the button does not run into the next field, and a rule to close the section */
-.testblock { margin: 2px 0 16px; }
+/* a rule closes the test, so it reads as its own step above the choices it unlocks */
+.testblock { margin: 2px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .testblock .testmsg { flex: 1; }
 .ztnapanel { margin: 14px 0 18px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 table.list.ztna { margin: 8px 0; font-size: 12.5px; }

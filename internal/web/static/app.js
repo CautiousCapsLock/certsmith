@@ -1407,8 +1407,8 @@ function pluginForm(kinds, current, extra, opts) {
     }
     holder.replaceChildren(d.help ? h('div', { class: 'help', style: 'margin:-4px 0 12px' }, d.help) : null, ...form.nodes);
     if (d.discover && form.by.ztna) {
-      // under the "Use this certificate for" ticks (and the IPsec names they reveal), above "Verify addresses"
-      const anchor = (form.by.fos_version || form.by.ztna).wrap;
+      // under the "Use this certificate for" ticks and the IPsec phase 1 names they reveal, above "Verify addresses"
+      const anchor = (form.by.ipsec_phase1 || form.by.uses || form.by.fos_version || form.by.ztna).wrap;
       const panel = ztnaPanel(form, kindSel.value, current, opts);
       form.ztna = panel;
       anchor.after(panel.node);

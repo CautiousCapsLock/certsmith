@@ -109,12 +109,16 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
 		}
 	}
+	// the test block is closed by a rule, between the credentials and the choices
+	if !regexp.MustCompile(`\.testblock \{[^}]*border-bottom`).MatchString(get("/style.css")) {
+		t.Error("the Test connection block must end with a rule")
+	}
 	// the ZTNA panel leaves room below it, so its button does not touch the next field
 	if !regexp.MustCompile(`\.ztnapanel \{[^}]*margin: [^;]*18px[^}]*padding-bottom`).MatchString(get("/style.css")) {
 		t.Error("the ZTNA panel must have space beneath it")
 	}
 	// the ZTNA panel sits under the function tick boxes, above Verify addresses
-	if !strings.Contains(get("/app.js"), "(form.by.fos_version || form.by.ztna).wrap") {
+	if !strings.Contains(get("/app.js"), "(form.by.ipsec_phase1 || form.by.uses || form.by.fos_version || form.by.ztna).wrap") {
 		t.Error("the ZTNA panel must be placed between the tick boxes and Verify addresses")
 	}
 	// a certificate that only needs putting on a device is "Action needed", not an error

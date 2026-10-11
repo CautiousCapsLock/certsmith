@@ -171,12 +171,12 @@ func (fortiGate) Descriptor() plugin.Descriptor {
 		plugin.Field{Key: "token", Label: "REST API token", Type: "password", Required: true, Secret: true,
 			Help: "Create a REST API admin whose profile can read and write certificates and the objects ticked below, and restrict it to this server's address under Trusted Hosts."},
 		plugin.Field{Key: "uses", Label: "Use this certificate for", Type: "checks", Default: "admin-gui", Choices: choices},
-		// the ZTNA servers chosen for replacement; filled by the "Look for ZTNA servers" panel
+		plugin.Field{Key: "ipsec_phase1", Label: "IPsec phase 1 names", Type: "text", ShowIf: "uses~ipsec",
+			Help: "Comma separated, as named under VPN > IPsec Tunnels."},
+		// the ZTNA servers chosen for replacement; filled by the ZTNA panel, which sits after the fields above
 		plugin.Field{Key: "ztna", Type: "hidden"},
 		// the release the device last reported (set by the ZTNA panel), so the SSL VPN tick can be switched off at once
 		plugin.Field{Key: "fos_version", Type: "hidden"},
-		plugin.Field{Key: "ipsec_phase1", Label: "IPsec phase 1 names", Type: "text", ShowIf: "uses~ipsec",
-			Help: "Comma separated, as named under VPN > IPsec Tunnels."},
 		verifyField,
 		plugin.Field{Advanced: true, Key: "vdom", Label: "VDOM", Type: "text", Default: "root"},
 		plugin.Field{Advanced: true, Key: "cert_prefix", Label: "Certificate name prefix", Type: "text", Default: "certsmith", Required: true,
