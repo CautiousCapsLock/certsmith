@@ -1868,9 +1868,18 @@ function targetForm(t, presetCert, presetKind) {
       if (!cert.value && !certOptional) throw new Error('Choose a certificate. A target that receives one needs it: add a provider, then a certificate, first (or use the Monitor only type to just watch an address).');
       // test first, so an untrusted certificate or a wrong token is caught here and not at the first deployment
       if (!(await runTest()) && !confirm('The connection test did not pass:\n\n' + (testMsg.textContent || 'no answer').replace(/^✗ /, '') + '\n\nSave this target anyway?')) return;
-      await api(isNew ? 'POST' : 'PUT', isNew ? '/api/targets' : '/api/targets/' + t.id,
+      const saved = await api(isNew ? 'POST' : 'PUT', isNew ? '/api/targets' : '/api/targets/' + t.id,
         Object.assign({ name: name.get(), cert_id: cert.value, enabled: en.get() === 'true' }, pf.read()));
-      close(); toast(isNew ? 'Added - deploying shortly' : 'Saved');
+      const id = (saved && saved.id) || (t && t.id);
+      if (own && id) {
+        // Choosing the certificate for this page is the request to install it, so it is installed now rather
+        // than left waiting for a second click. (Any other target's first deployment is started by you.)
+        await api('POST', '/api/targets/' + id + '/deploy');
+        close(); toast('Installing the certificate on this page: new connections use it within seconds.');
+      } else {
+        close();
+        toast(isNew ? 'Added. Nothing has been installed yet: press Deploy on the target to do the first deployment.' : 'Saved');
+      }
     }) }, 'Save')]);
 }
 
@@ -2103,6 +2112,11 @@ function renderSettings() {
           if (!S.certificates.length) { toast('Add a certificate first, for the name you will use to open this page', true); return; }
           targetForm(null, null, 'selfui');
         } }, 'Configure SSL certificate'),
+        // installing the chosen certificate is one click here: primary while it is not on the page yet
+        mine && cert && cert.serial ? h('button', { class: 'btn' + (mine.deployed_serial === cert.serial ? ' ghost' : ' primary'), disabled: !!mine.deploying,
+          title: mine.deployed_serial === cert.serial ? 'Install the certificate on this page again' : 'Install the chosen certificate on this page now',
+          onclick: () => act('POST', `/api/targets/${mine.id}/deploy`, 'Installing the certificate on this page…') },
+          mine.deployed_serial === cert.serial ? 'Redeploy' : 'Deploy now') : null,
         u.bootstrap ? h('button', { class: 'btn ghost', onclick: regenerateUICertForm }, 'Regenerate certificate') : null) : null);
   };
 

@@ -1108,6 +1108,7 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	savedID := id
 	err = s.St.Update(func(db *model.DB) error {
 		if in.CertID != "" {
 			found := false
@@ -1148,6 +1149,7 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 		in.ID, in.Config = store.NewID(), merged
 		in.DeployedSerial, in.LastError = "", ""
 		db.Targets = append(db.Targets, in)
+		savedID = in.ID
 		return nil
 	})
 	if err != nil {
@@ -1155,7 +1157,7 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Eng.Kick()
-	writeJSON(w, map[string]bool{"ok": true})
+	writeJSON(w, map[string]any{"ok": true, "id": savedID}) // the page starts the first deployment of its own certificate with it
 }
 
 func (s *Server) deleteTarget(w http.ResponseWriter, r *http.Request) {

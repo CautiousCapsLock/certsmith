@@ -172,6 +172,32 @@ func TestOnlyTargetsThatNeverDeployCanBeSavedWithoutACertificate(t *testing.T) {
 	}
 }
 
+func TestSavingATargetAnswersWithItsID(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	_ = ws.St.Update(func(db *model.DB) error {
+		db.Certificates = append(db.Certificates, model.Certificate{ID: "c1", Name: "c", Domains: []string{"a.example"}, Enabled: true})
+		return nil
+	})
+	code, body, _ := call(t, c, "POST", srv.URL+"/api/targets", map[string]any{
+		"name": "files", "kind": "files", "cert_id": "c1", "enabled": true, "config": map[string]string{"dir": t.TempDir()}}, false, nil)
+	var made struct {
+		OK bool
+		ID string
+	}
+	_ = json.Unmarshal([]byte(body), &made)
+	if code != 200 || !made.OK || made.ID == "" {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	code, body, _ = call(t, c, "PUT", srv.URL+"/api/targets/"+made.ID, map[string]any{
+		"name": "files2", "kind": "files", "cert_id": "c1", "enabled": true, "config": map[string]string{"dir": t.TempDir()}}, false, nil)
+	var again struct{ ID string }
+	_ = json.Unmarshal([]byte(body), &again)
+	if code != 200 || again.ID != made.ID {
+		t.Fatalf("update must answer with the same id: %d %s", code, body)
+	}
+}
+
 func TestPauseAndResumeATarget(t *testing.T) {
 	srv, ws := newTestServer(t)
 	c := setupAndLogin(t, srv)
