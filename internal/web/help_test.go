@@ -109,6 +109,10 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
 		}
 	}
+	// the ZTNA panel sits under the function tick boxes, above Verify addresses
+	if !strings.Contains(get("/app.js"), "(form.by.fos_version || form.by.ztna).wrap") {
+		t.Error("the ZTNA panel must be placed between the tick boxes and Verify addresses")
+	}
 	// a certificate that only needs putting on a device is "Action needed", not an error
 	for _, want := range []string{"function targetState(", "'Action needed'", "needs a deployment or a manual import"} {
 		if !strings.Contains(get("/app.js"), want) {

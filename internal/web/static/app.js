@@ -1403,7 +1403,11 @@ function pluginForm(kinds, current, extra, opts) {
       update();
     }
     holder.replaceChildren(d.help ? h('div', { class: 'help', style: 'margin:-4px 0 12px' }, d.help) : null, ...form.nodes);
-    if (d.discover && form.by.ztna) holder.append(ztnaPanel(form, kindSel.value, current, opts));
+    if (d.discover && form.by.ztna) {
+      // under the "Use this certificate for" ticks (and the IPsec names they reveal), above "Verify addresses"
+      const anchor = (form.by.fos_version || form.by.ztna).wrap;
+      anchor.after(ztnaPanel(form, kindSel.value, current, opts));
+    }
     if (form.by.pin_sha256) { // a certificate the user chose to trust: say so, and let them undo it
       const trust = h('div', { class: 'trustline' });
       const paint = () => {
