@@ -64,6 +64,9 @@ h2 { font-size: 15px; margin: 0; }
 .meta { color: var(--muted); font-size: 12.5px; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .expiry { min-width: 170px; text-align: right; }
+/* the buttons of a certificate get a slot of one width, right-aligned, so the expiry beside it starts at the
+   same place on every card (Replace is narrower than Renew now, and Issuing... differs again) */
+.card > .head > .row { flex: none; justify-content: flex-end; min-width: 236px; }
 .bar { height: 6px; background: var(--idle-bg); border-radius: 4px; margin-top: 6px; overflow: hidden; }
 .bar > i { display: block; height: 100%; border-radius: 4px; background: var(--ok); }
 .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); }
@@ -156,6 +159,7 @@ table.list th { border-top: 0; color: var(--muted); font-weight: 600; font-size:
 @media (max-width: 760px) {
   .trow { grid-template-columns: 1fr; gap: 6px; }
   .card > .head { flex-direction: column; }
+  .card > .head > .row { min-width: 0; justify-content: flex-start; }
   .expiry { text-align: left; }
   main { padding: 16px 14px 50px; }
 }
