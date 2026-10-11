@@ -34,6 +34,7 @@ type fakeFGT struct {
 	hideUserCAs bool              // the CA list does not show user-added CAs at all
 	realCAs     bool              // behave like current FortiOS: the CA list has no certificate bodies, a duplicate import is error -328
 	version     string            // what monitor/system/status reports (default v7.4.5, which still has SSL VPN)
+	refuseDup   bool              // like FortiOS: importing a certificate already there under another name is error -328
 	srv         *httptest.Server
 }
 
@@ -67,6 +68,14 @@ func (f *fakeFGT) handle(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		name := body["certname"].(string)
+		if f.refuseDup {
+			for have := range f.certs {
+				if have != name && fgNameOrder(have) == fgNameOrder(name) {
+					http.Error(w, `{"http_method":"POST","error":-328,"status":"error","http_status":500}`, http.StatusInternalServerError)
+					return
+				}
+			}
+		}
 		f.imported[name] = body
 		f.certs[name] = 0
 		reply(map[string]any{"status": "success"})

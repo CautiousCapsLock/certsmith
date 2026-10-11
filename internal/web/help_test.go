@@ -104,7 +104,7 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 		}
 	}
 	// a FortiGate's ZTNA servers are discovered, chosen, and SSL VPN is switched off where it is gone
-	for _, want := range []string{"function ztnaPanel(", "Look for ZTNA servers", "'/api/discover-target'", "Removed in FortiOS 7.6"} {
+	for _, want := range []string{"function ztnaPanel(", "Look for ZTNA servers", "'/api/discover-target'", "SSL VPN was removed in FortiOS 7.6", "pf.afterTest()", "class: 'testblock'"} {
 		if !strings.Contains(get("/app.js"), want) {
 			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
 		}

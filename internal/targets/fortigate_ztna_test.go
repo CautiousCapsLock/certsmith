@@ -272,3 +272,35 @@ func fgNameOrderSuffix(b *plugin.Bundle) string {
 }
 
 var _ = time.Second
+
+// Release 0.14 added a label to the name. A certificate that an earlier release put on the device is
+// the same certificate, and FortiOS refuses to import it again (-328): the copy there must be used.
+func TestACertificateAlreadyOnTheDeviceUnderTheOldNameIsReusedNotImportedAgain(t *testing.T) {
+	f := newFakeFGT(t)
+	f.refuseDup = true
+	b, _ := realisticBundle(t)
+	b.Name = "LocalWildcardFAC"
+	old := certName("certsmith", b, 35) // what 0.13 called it
+	f.certs[old] = 0
+	cfg := capCfg(f, "admin-gui")
+	cfg["cert_prefix"] = "certsmith"
+	msg, err := fortiGate{}.Deploy(context.Background(), cfg, b)
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	if len(f.imported) != 0 {
+		t.Errorf("imported again: %v", f.imported)
+	}
+	if !strings.Contains(msg, "already on the device as "+old) || f.values["system/global:admin-server-cert"] != old {
+		t.Errorf("msg=%q admin cert=%q, want the existing %s used", msg, f.values["system/global:admin-server-cert"], old)
+	}
+	// and a different certificate is still imported under the new name
+	b2, _ := realisticBundle(t)
+	b2.Name = "Other"
+	if _, err := (fortiGate{}).Deploy(context.Background(), cfg, b2); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.imported) != 1 {
+		t.Errorf("a different certificate must be imported: %v", f.imported)
+	}
+}

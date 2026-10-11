@@ -226,6 +226,7 @@ func fgCallDocs() []plugin.CallDoc {
 	)
 	docs = append(docs,
 		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/local/<name>", Purpose: "Asks whether this exact certificate was already imported, so a retry does not import it twice."},
+		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/local?with_meta=1", Purpose: "Looks for this same certificate already on the device under another name (an earlier release named it differently), so that copy is used: FortiOS refuses to import a certificate that is already there.", When: "it is not there under the expected name"},
 		plugin.CallDoc{Op: "deploy", Method: "POST", Path: "/api/v2/monitor/vpn-certificate/local/import", Changes: true,
 			Purpose: "Imports the certificate and its private key (as a PKCS#12 bundle, or PEM if you chose that) under the name <prefix>-<name>-<date>-<serial>."},
 		plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "/api/v2/cmdb/vpn.certificate/local/<name>", Changes: true,
@@ -413,6 +414,26 @@ func (b fgBinding) valueFor(name string) json.RawMessage {
 	return v
 }
 
+// sameCertificate finds a certificate CertSmith already put on the device that is the one named by
+// want, whatever label it carries: names end in the date and the last digits of the serial. It
+// returns its name, or "" when there is none (or the device could not be asked).
+func (c *fgClient) sameCertificate(ctx context.Context, prefix, want string) string {
+	key := fgNameOrder(want)
+	if key == want { // not in the <date>-<serial> form: nothing to compare
+		return ""
+	}
+	certs, err := c.listCerts(ctx, prefix)
+	if err != nil {
+		return ""
+	}
+	for _, ce := range certs {
+		if ce.name != want && fgNameOrder(ce.name) == key {
+			return ce.name
+		}
+	}
+	return ""
+}
+
 func (c *fgClient) certExists(ctx context.Context, name string) (bool, error) {
 	err := c.callRetry(ctx, http.MethodGet, "/api/v2/cmdb/vpn.certificate/local/"+url.PathEscape(name), nil, nil, nil)
 	var ae *apiError
@@ -565,9 +586,26 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 		return "", fmt.Errorf("check existing certificate: %w", err)
 	}
 	if !exists {
-		if err := c.importCert(ctx, name, b, cfg["import_format"]); err != nil {
-			return "", fmt.Errorf("import certificate %s: %w", name, err)
+		// The same certificate may be on the device under another name: an earlier release named it
+		// without the label, or the label has changed. FortiOS refuses to import a certificate that is
+		// already there (error -328), so the copy that is there is used.
+		if other := c.sameCertificate(ctx, prefix, name); other != "" {
+			name, exists = other, true
 		}
+	}
+	if !exists {
+		if err := c.importCert(ctx, name, b, cfg["import_format"]); err != nil {
+			if isDuplicateCA(err) { // refused as a duplicate: it is there under a name that could not be told apart
+				if other := c.sameCertificate(ctx, prefix, name); other != "" {
+					name, exists = other, true
+				}
+			}
+			if !exists {
+				return "", fmt.Errorf("import certificate %s: %w", name, err)
+			}
+		}
+	}
+	if !exists {
 		// a note on the device saying what this certificate is (best effort: the name alone is cut to fit)
 		note := fmt.Sprintf("CertSmith: %s (%s), expires %s", b.Name, strings.Join(b.Domains, ", "), b.NotAfter.UTC().Format("2006-01-02"))
 		if len(note) > 120 {

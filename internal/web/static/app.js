@@ -854,7 +854,7 @@ function ztnaPanel(form, kind, current, opts) {
     box.cb.disabled = off;
     if (off) box.cb.checked = false;
     const small = box.cb.parentElement.querySelector('small');
-    if (small && off) small.textContent = 'Removed in FortiOS 7.6 (' + ver + '): ZTNA and agentless VPN replace it. See the ZTNA servers below.';
+    if (small && off) small.textContent = 'SSL VPN was removed in FortiOS 7.6 and later (this FortiGate runs ' + ver.replace(/^v/, '') + '). ZTNA and agentless VPN replace it: see ZTNA servers below.';
   };
   applyVersion(form.by.fos_version ? form.by.fos_version.get() : '');
 
@@ -899,8 +899,9 @@ function ztnaPanel(form, kind, current, opts) {
   };
 
   const btn = h('button', { type: 'button', class: 'btn' }, 'Look for ZTNA servers');
-  btn.addEventListener('click', async () => {
-    btn.disabled = true; note.textContent = 'Asking the FortiGate…';
+  // Reads the device. It runs when Test connection passes, and again when the button is pressed.
+  const run = async () => {
+    btn.disabled = true; note.className = 'help'; note.textContent = 'Asking the FortiGate…';
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -918,12 +919,14 @@ function ztnaPanel(form, kind, current, opts) {
         }
       }
     } catch (e) { note.className = 'err small'; note.textContent = e.message; } finally { btn.disabled = false; }
-  });
-  return h('div', { class: 'ztnapanel' },
+  };
+  btn.addEventListener('click', run);
+  const node = h('div', { class: 'ztnapanel' },
     h('div', { class: 'sect' }, 'ZTNA servers and agentless VPN'),
     h('p', { class: 'meta', style: 'margin:0 0 8px' },
-      'From FortiOS 7.6 the certificate of a ZTNA server is set on its virtual IP or virtual host. Look at the device, then tick the entries CertSmith should replace each time it deploys. Nothing is replaced unless it is ticked, and only the ticked certificate entry changes.'),
+      'From FortiOS 7.6 the certificate of a ZTNA server is set on its virtual IP or virtual host. Test connection looks at the device and lists them here (or press the button to look again). Tick the entries CertSmith should replace each time it deploys. Nothing is replaced unless it is ticked, and only the ticked certificate entry changes.'),
     btn, note, out);
+  return { node, run };
 }
 // What the server shows in place of a saved secret. It cannot be revealed: the real
 // value never leaves the server once it is stored.
@@ -1406,7 +1409,17 @@ function pluginForm(kinds, current, extra, opts) {
     if (d.discover && form.by.ztna) {
       // under the "Use this certificate for" ticks (and the IPsec names they reveal), above "Verify addresses"
       const anchor = (form.by.fos_version || form.by.ztna).wrap;
-      anchor.after(ztnaPanel(form, kindSel.value, current, opts));
+      const panel = ztnaPanel(form, kindSel.value, current, opts);
+      form.ztna = panel;
+      anchor.after(panel.node);
+    }
+    // Test connection sits right under the address and the token: they are all it needs, and a pass
+    // goes on to show what the device offers (see afterTest)
+    if (opts.testBlock) {
+      opts.testBlock.style.display = d.kind === 'watch' ? 'none' : '';
+      const secret = d.fields.find(f => f.type === 'password' && f.secret && form.by[f.key]);
+      const at = secret ? form.by[secret.key].wrap : (form.rows.conn || holder.lastElementChild);
+      if (at) at.after(opts.testBlock);
     }
     if (form.by.pin_sha256) { // a certificate the user chose to trust: say so, and let them undo it
       const trust = h('div', { class: 'trustline' });
@@ -1432,7 +1445,9 @@ function pluginForm(kinds, current, extra, opts) {
       : [h('div', { class: 'field' }, h('label', {}, opts.typeLabel || 'Type'), kindSel)];
   return { node: h('div', {}, ...top, extra, holder), read: () => ({ kind: kindSel.value, config: form.read() }),
     setValue: (k, v) => { form.by[k].input.value = v; if (form.paintTrust) form.paintTrust(); },
-    getValue: k => (form.by[k] ? form.by[k].get() : '') };
+    getValue: k => (form.by[k] ? form.by[k].get() : ''),
+    // after a passing test: let the type look at the device (a FortiGate's version and ZTNA servers)
+    afterTest: async () => { if (form.ztna) await form.ztna.run(); } };
 }
 
 // Add or edit a certificate provider. Let's Encrypt needs only DNS credentials (its directory is in
@@ -1653,10 +1668,15 @@ function targetForm(t, presetCert, presetKind) {
     (S.certificates || []).map(c => h('option', { value: c.id }, c.name + ' (' + c.domains[0] + ')')));
   cert.value = t.cert_id || '';
   const en = fieldEl({ key: 'enabled', label: 'Enabled', type: 'bool' }, t.enabled);
+  const testMsg = h('span', { class: 'testmsg' });
+  // the test sits under the address and token (placed by pluginForm); runTest is declared below
+  const testBlock = own ? null : h('div', { class: 'testblock' },
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn', onclick: e => submit(e.target, runTest) }, 'Test connection'), testMsg),
+    h('div', { class: 'help' }, 'Needs only the address and the token. A passing test reads the device and shows what it can use the certificate for.'));
   const pf = pluginForm(kinds, Object.assign({ id: isNew ? '' : t.id }, t),
     h('div', {}, name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert), en.wrap),
-    { vendors: true, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
-  const testMsg = h('span', { class: 'testmsg' });
+    { vendors: true, testBlock, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
 
   // Runs the connection test. A device whose certificate cannot be verified is not
   // just reported as failed: the user is shown it and asked whether to trust it, and
@@ -1669,6 +1689,7 @@ function targetForm(t, presetCert, presetKind) {
         const r = await api('POST', '/api/test-target', Object.assign({ id: isNew ? '' : t.id }, pf.read()));
         testCalls = r.calls || [];
         testMsg.className = 'testmsg ok'; testMsg.textContent = '✓ ' + r.message;
+        pf.afterTest().catch(() => {}); // what the device offers (a FortiGate's version and ZTNA servers)
         return true;
       } catch (err) {
         testCalls = (err.data && err.data.calls) || [];
@@ -1697,10 +1718,9 @@ function targetForm(t, presetCert, presetKind) {
     } }, own ? 'Stop managing' : 'Delete') : null,
     !isNew && t.kind !== 'watch' && !isManual(t.kind) ? h('button', { class: 'btn', title: 'Deploy the current certificate to this device now, with the settings as last saved',
       onclick: e => submit(e.target, async () => { await api('POST', '/api/targets/' + t.id + '/deploy'); close(); toast('Deployment started'); }) }, 'Deploy now') : null,
-    testMsg,
+    h('div', { class: 'grow' }),
     own ? null : h('button', { class: 'btn ghost', title: 'What the plugin sends to the device, and what was sent', onclick: () =>
       callsDialog({ id: isNew ? '' : t.id, kind: pf.read().kind, name: name.get() }, isNew ? testCalls : []) }, 'API calls'),
-    own ? null : h('button', { class: 'btn', onclick: e => submit(e.target, runTest) }, 'Test connection'),
     h('button', { class: 'btn', onclick: close }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
       // test first, so an untrusted certificate or a wrong token is caught here and not at the first deployment
