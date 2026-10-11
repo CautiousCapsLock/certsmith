@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -597,9 +598,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			in.SMTP.Port = 587
 		}
 	}
-	if u := strings.TrimSpace(in.WebhookURL); u != "" && !strings.HasPrefix(u, "http") {
-		fail(w, 400, "webhook URL must start with http:// or https://")
-		return
+	if u := strings.TrimSpace(in.WebhookURL); u != "" {
+		if pu, err := url.Parse(u); err != nil || pu.Host == "" || (pu.Scheme != "https" && pu.Scheme != "http") {
+			fail(w, 400, "webhook URL must start with http:// or https:// and name a host")
+			return
+		}
 	}
 	if in.AlertRouting != nil {
 		clean := func(ids []string) ([]string, error) {

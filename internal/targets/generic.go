@@ -68,11 +68,20 @@ func (webhookTarget) Test(ctx context.Context, cfg map[string]string) (string, e
 
 func (webhookTarget) Deploy(ctx context.Context, cfg map[string]string, b *plugin.Bundle) (string, error) {
 	u := strings.TrimSpace(cfg["url"])
-	hostPart := strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
-	hc, err := httpClient(strings.SplitN(hostPart, "/", 2)[0], cfg, 30*time.Second)
+	pu, err := url.Parse(u)
+	if err != nil || pu.Host == "" || (pu.Scheme != "https" && pu.Scheme != "http") {
+		return "", fmt.Errorf("the URL must start with https:// (or http://) and name a host")
+	}
+	if pu.Scheme != "https" && isTrue(cfg["include_key"]) {
+		return "", fmt.Errorf("refusing to send the private key over plain HTTP: use an https:// URL, or untick \"Include private key in payload\"")
+	}
+	hc, err := httpClient(pu.Host, cfg, 30*time.Second)
 	if err != nil {
 		return "", err
 	}
+	// An answer that is a redirect is not followed: the payload (a key, when it is included) would go on to
+	// a place the configured URL does not name, perhaps over plain HTTP. It is reported as a failure below.
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	payload := map[string]any{
 		"name": b.Name, "domains": b.Domains, "serial": b.Serial,
 		"not_after": b.NotAfter.Format(time.RFC3339), "fullchain_pem": string(b.FullChain),
@@ -157,10 +166,24 @@ func (filesTarget) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 		"chain.pem": {b.ChainPEM, 0o644}, "key.pem": {b.KeyPEM, keyMode},
 	} {
 		tmp := filepath.Join(dir, "."+name+".tmp")
-		if err := os.WriteFile(tmp, d.data, d.mode); err != nil {
+		// Never write through a name someone else put there (a link, a stale file): remove it, then create
+		// the file anew and exclusively, so a key cannot be written to a path planted in a shared directory.
+		_ = os.Remove(tmp)
+		f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, d.mode)
+		if err != nil {
 			return "", err
 		}
-		if err := os.Chmod(tmp, d.mode); err != nil {
+		if _, err := f.Write(d.data); err != nil {
+			f.Close()
+			_ = os.Remove(tmp)
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			_ = os.Remove(tmp)
+			return "", err
+		}
+		if err := os.Chmod(tmp, d.mode); err != nil { // the umask may have narrowed it
+			_ = os.Remove(tmp)
 			return "", err
 		}
 		if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
@@ -172,14 +195,30 @@ func (filesTarget) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 		if !plugin.GetOptions().AllowCommands {
 			return msg, fmt.Errorf("files written, but running commands is disabled (set CERTSMITH_ALLOW_COMMANDS=1)")
 		}
-		c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-		c.Env = append(os.Environ(), "CERTSMITH_CERT_DIR="+dir, "CERTSMITH_SERIAL="+b.Serial)
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		c := exec.CommandContext(cctx, "/bin/sh", "-c", cmd)
+		c.Env = commandEnv(dir, b.Serial)
 		if out, err := c.CombinedOutput(); err != nil {
 			return msg, fmt.Errorf("command failed: %v: %s", err, strings.TrimSpace(string(out)))
 		}
 		msg += "; command ok"
 	}
 	return msg, nil
+}
+
+// commandEnv is the environment of a post-deploy command: CertSmith's own, without the master key and the
+// seed password (a command has no use for them, and a command that logs its environment must not leak them),
+// plus where the files are and which certificate they hold.
+func commandEnv(dir, serial string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "CERTSMITH_MASTER_KEY=") || strings.HasPrefix(kv, "CERTSMITH_ADMIN_PASSWORD=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "CERTSMITH_CERT_DIR="+dir, "CERTSMITH_SERIAL="+serial)
 }
 
 // ---- watch (monitor only) ----------------------------------------------------
