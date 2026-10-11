@@ -119,6 +119,62 @@ func (e *Engine) probeAddrs(t model.Target) []string {
 			}
 		}
 	}
+	return dropShadowedIPs(out, lookupHost)
+}
+
+// lookupHost resolves a name for dropShadowedIPs; a variable so that tests need no DNS.
+var lookupHost = func(host string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// dropShadowedIPs removes an address written as an IP when another address in the list is a name that
+// resolves to exactly that IP on the same port: they are one endpoint (a device addressed by IP whose
+// DNS name was typed under "Verify"), and listing it twice is only noise. Two names are never merged,
+// because the same IP can serve different certificates by name; a name that has several addresses, or
+// cannot be resolved, merges nothing.
+func dropShadowedIPs(addrs []string, lookup func(string) ([]string, error)) []string {
+	split := func(a string) (host, port string) {
+		h, p, err := net.SplitHostPort(a)
+		if err != nil {
+			return strings.Trim(a, "[]"), "443"
+		}
+		return h, p
+	}
+	hasIP, hasName := false, false
+	for _, a := range addrs {
+		if h, _ := split(a); net.ParseIP(h) != nil {
+			hasIP = true
+		} else {
+			hasName = true
+		}
+	}
+	if !hasIP || !hasName {
+		return addrs
+	}
+	only := map[string]bool{} // "ip|port" for each name that resolves to that one address
+	for _, a := range addrs {
+		h, port := split(a)
+		if net.ParseIP(h) != nil {
+			continue
+		}
+		ips, err := lookup(h)
+		if err != nil || len(ips) != 1 {
+			continue
+		}
+		if ip := net.ParseIP(ips[0]); ip != nil {
+			only[ip.String()+"|"+port] = true
+		}
+	}
+	var out []string
+	for _, a := range addrs {
+		h, port := split(a)
+		if ip := net.ParseIP(h); ip != nil && only[ip.String()+"|"+port] {
+			continue
+		}
+		out = append(out, a)
+	}
 	return out
 }
 
