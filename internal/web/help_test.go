@@ -109,6 +109,14 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("a target that needs a deployment must be reported as action needed: missing %q", want)
 		}
 	}
+	// the columns of a target row line up whatever number of buttons a row has: the last track is fixed
+	if !regexp.MustCompile(`\.trow \{[^}]*minmax\(0, 2fr\) \d+px;`).MatchString(get("/style.css")) {
+		t.Error("the buttons column of a target row must have a fixed width so rows align")
+	}
+	// a device installed by hand that serves an older certificate is not "serving a different cert" in red
+	if !strings.Contains(get("/app.js"), "'not the current certificate'") {
+		t.Error("a manually installed device with an older certificate must say so in words, not as a fault")
+	}
 	// a device that is installed by hand says so, and has no Deploy button
 	for _, want := range []string{"const isManual =", "import needed", "isManual(t.kind)"} {
 		if !strings.Contains(get("/app.js"), want) {

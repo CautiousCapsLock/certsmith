@@ -334,9 +334,11 @@ function deploymentNotes(message) {
   return h('ul', { class: 'notes' }, items.map(x => h('li', {}, x)));
 }
 
-function probeLine(p, managed) {
+function probeLine(p, managed, manual) {
   let st;
   if (p.error) st = chip('unreachable', p.bad >= 2 ? 'bad' : 'warn');
+  // a device installed by hand that is not serving the current certificate needs an import, which is not a fault
+  else if (!p.match && managed && manual) st = chipTitled('not the current certificate', 'warn', 'Import the current certificate on the device.');
   else if (!p.match && managed) st = chip('serving a different cert', p.bad >= 2 ? 'bad' : 'warn');
   else st = chip('serving', 'ok');
   const kids = [h('span', { class: 'mono' }, p.addr), st];
@@ -445,7 +447,7 @@ function targetRow(t, c) {
     h('div', {},
       t.last_error ? h('div', { class: 'err' }, t.last_error) : null,
       t.message && !t.last_error && t.kind !== 'watch' ? deploymentNotes(t.message) : null,
-      (t.probes || []).map(p => probeLine(p, !!c)),
+      (t.probes || []).map(p => probeLine(p, !!c, isManual(t.kind))),
       !(t.probes || []).length && t.kind !== 'watch'
         ? h('div', { class: 'meta' }, ((schema.targets.find(d => d.kind === t.kind) || {}).auto_verify) ? 'waiting for the first live check' : 'no address to check') : null),
     h('div', { class: 'row' },
