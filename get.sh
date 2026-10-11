@@ -8,8 +8,9 @@
 #
 #   bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
 #
-# Ubuntu ships wget but usually not curl, so wget is shown here; curl works the same way
-# (replace "wget -nv -O-" with "curl -fsSL"). If the command returns at once and prints
+# Ubuntu ships wget but usually not curl, so wget is shown here and is the tool this script
+# uses when it is present; curl is used where there is no wget (replace "wget -nv -O-" with
+# "curl -fsSL" in the command above). If the command returns at once and prints
 # nothing, the script could not be downloaded (a private repository answers 404): run the
 # download part on its own to see the error.
 #
@@ -30,10 +31,10 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# curl, or wget where there is no curl (a minimal container image often has neither)
-if   have curl; then DL=curl
-elif have wget; then DL=wget
-else die "curl or wget is required to download the release. On a minimal system, install one first: apt-get update && apt-get install -y wget"
+# wget first (Ubuntu ships it), curl where there is no wget; a minimal container image may have neither
+if   have wget; then DL=wget
+elif have curl; then DL=curl
+else die "wget or curl is required to download the release. On a minimal system, install one first: apt-get update && apt-get install -y wget"
 fi
 have tar  || die "tar is required"
 
@@ -61,7 +62,7 @@ esac
 if [ -z "$VERSION" ]; then
   url=$(redirect_target "$BASE/$REPO/releases/latest") \
     || die "could not reach $BASE/$REPO/releases/latest"
-  [ -n "$url" ] || die "could not reach $BASE/$REPO/releases/latest, or it has no release (is the repository private?)"
+  [ -n "$url" ] || die "no published release found at $BASE/$REPO/releases/latest, or it could not be reached (is the repository private? GitHub answers 404 for a private repository)"
   VERSION="${url##*/}"
 fi
 case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac

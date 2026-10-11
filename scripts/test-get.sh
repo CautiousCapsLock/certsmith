@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tests get.sh without a network: curl is a stub that serves files from a fixture
+# Tests get.sh without a network: wget and curl are stubs that serve files from a fixture
 # directory, and the packaged installer is a stub that records how it was called.
 #
 #   sh scripts/test-get.sh        runs under sh, and under dash when present
@@ -174,31 +174,41 @@ suite() {
   for t in sh awk grep head mktemp rm tar sha256sum shasum openssl cat tr sed dirname basename mkdir cp sort pwd; do
     p=$(command -v "$t" 2>/dev/null) && [ -x "$p" ] && ln -s "$p" "$tools/$t"
   done
-  nocurl() { # run with a PATH that has the stubs (uname, id, sudo, and wget unless $1 is none) but no curl
+  only() { # run with a PATH that has the stubs (uname, id, sudo) and just one download tool: wget (default), curl or none
     mkdir -p "$work/stubs2"; rm -f "$work/stubs2"/*
     for s in uname id sudo; do cp "$work/stubs/$s" "$work/stubs2/$s"; done
-    [ "${1:-}" = none ] || cp "$work/stubs/wget" "$work/stubs2/wget"
+    case "${1:-wget}" in none) ;; curl) cp "$work/stubs/curl" "$work/stubs2/curl" ;; *) cp "$work/stubs/wget" "$work/stubs2/wget" ;; esac
     OUT=$(CERTSMITH_BASE_URL=https://example.test CERTSMITH_REPO=owner/repo STUB_LOG="$LOG" STUB_FIXTURES="$FIX" \
           TMPDIR="$work/tmp" PATH="$work/stubs2:$tools" "$(command -v "$SH")" "$here/get.sh" 2>&1)
     RC=$?
   }
   newcase wget
-  nocurl
+  only wget
   if logged "wget https://example.test/owner/repo/releases/latest" && logged "INSTALLER cwd=certsmith-9.9.9-linux-amd64"; then
     pass "with only wget, the latest release is found, downloaded and installed"
   else fail "wget only" "$OUT $(cat "$LOG")"; fi
   ! logged "curl " && pass "and curl was not needed" || fail "no curl" "$(cat "$LOG")"
+  newcase curlonly
+  only curl
+  if logged "curl https://example.test/owner/repo/releases/latest" && logged "INSTALLER cwd=certsmith-9.9.9-linux-amd64"; then
+    pass "with only curl, the release is found, downloaded and installed"
+  else fail "curl only" "$OUT $(cat "$LOG")"; fi
+  newcase both
+  run
+  if logged "wget https://example.test/owner/repo/releases/latest" && ! logged "curl "; then
+    pass "with both tools, wget is the one used"
+  else fail "wget preferred" "$(cat "$LOG")"; fi
   newcase nofetch
-  nocurl none
-  case "$OUT" in *"curl or wget is required"*"apt-get install -y wget"*) pass "with neither, the message says what to install" ;; *) fail "neither tool" "$OUT" ;; esac
+  only none
+  case "$OUT" in *"wget or curl is required"*"apt-get install -y wget"*) pass "with neither, the message says what to install" ;; *) fail "neither tool" "$OUT" ;; esac
   [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "and nothing was installed" || fail "nothing installed" "$OUT"
   newcase wgetprivate
-  STUB_NO_RELEASE=1 nocurl
+  STUB_NO_RELEASE=1 only wget
   case "$OUT" in *"private"*) pass "with wget, a repository with no visible release is explained" ;; *) fail "wget private repo" "$OUT" ;; esac
 
   newcase hostile
   CERTSMITH_VERSION='v1.0.0;rm -rf /' run
-  [ "$RC" -ne 0 ] && ! logged curl && pass "a hostile version string is refused before any download" || fail "hostile version" "$OUT"
+  [ "$RC" -ne 0 ] && ! logged curl && ! logged wget && pass "a hostile version string is refused before any download" || fail "hostile version" "$OUT"
   unset CERTSMITH_VERSION
 }
 

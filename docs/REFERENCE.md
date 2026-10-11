@@ -32,7 +32,7 @@ given. As a pipe: `wget -nv -O- URL | sudo bash -s -- [installer options]`. `cur
 
 Behaviour:
 
-1. Requires Linux, `curl` or `wget`, and `tar`, and an amd64 or arm64 CPU.
+1. Requires Linux, `wget` (or `curl` where there is no `wget`), and `tar`, and an amd64 or arm64 CPU.
 2. Resolves the release, downloads `certsmith-<version>-linux-<arch>.tar.gz` and `SHA256SUMS`.
 3. Stops, before unpacking, if the archive's SHA-256 is missing from or differs from `SHA256SUMS`.
 4. Stops if the archive contains any path outside its own directory.

@@ -28,7 +28,7 @@ bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certs
 
 The script downloads the latest release for the host architecture, verifies its SHA-256 checksum, and runs the installer packaged with it. The installer prints the address of the web interface and the fingerprint of its certificate.
 
-Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`; the script itself works with either. Where `curl` is the tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first: `apt-get update && apt-get install -y wget`.
+Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`, and the script itself uses `wget` when it is present and `curl` otherwise. Where `curl` is the only tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first: `apt-get update && apt-get install -y wget`.
 
 The commands read from GitHub without credentials, so they need a public repository. If a command returns at once and prints nothing, the download failed (GitHub answers 404 for a private repository): run `wget -nv -O-` with the same address on its own to see the error. For a private repository, copy the release archive to the host and install it by hand (see [Installation](#installation)).
 
