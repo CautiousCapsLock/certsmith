@@ -29,7 +29,7 @@ func newZTNAFGT(t *testing.T, version string) *ztnaFGT {
 	z := &ztnaFGT{
 		fakeFGT: newFakeFGT(t),
 		vips:    map[string][]string{"ztna-vip": {"Fortinet_Factory"}},
-		vhosts:  map[string][]string{"portal.example.com": {"Fortinet_Factory"}, "app2.example.com": {"old-cert", "certsmith-wild-20200101-aaaa"}},
+		vhosts:  map[string][]string{"portal.example.com": {"Fortinet_Factory"}, "app2.example.com": {"old-cert", "certsmith-wild-20200101-aaaa"}, "builtin-default": {"Fortinet_Factory"}},
 		servers: strings.HasPrefix(version, "v7.6"),
 	}
 	z.fakeFGT.version = version
@@ -56,7 +56,11 @@ func (z *ztnaFGT) handle(w http.ResponseWriter, r *http.Request) {
 	case p == base+"vip" && r.Method == http.MethodGet:
 		var res []map[string]any
 		for n, c := range z.vips {
-			res = append(res, map[string]any{"name": n, "type": "access-proxy", "extip": "203.0.113.10", "extport": "8443", "ssl-certificate": entries(c)})
+			v := map[string]any{"name": n, "type": "access-proxy", "extip": "203.0.113.10", "extport": "8443", "ssl-certificate": entries(c)}
+			if !z.servers { // 8.0: the virtual IP names its authentication portal's host
+				v["auth-virtual-host"] = "portal.example.com"
+			}
+			res = append(res, v)
 		}
 		reply(res)
 	case p == base+"access-proxy-virtual-host" && r.Method == http.MethodGet:
@@ -129,6 +133,9 @@ func TestDiscoveringTheZTNAServersOnFortiOS76(t *testing.T) {
 	for _, r := range d.ZTNA {
 		byName[r.Kind+":"+r.Name] = r
 	}
+	if _, listed := byName["vhost:builtin-default"]; listed || d.Unused != 1 {
+		t.Errorf("a virtual host nothing refers to must not be offered (listed=%v, unused=%d)", listed, d.Unused)
+	}
 	vip := byName["vip:ztna-vip"]
 	if vip.Where != "203.0.113.10:8443" || vip.Server != "ztna-server" || strings.Join(vip.Certs, ",") != "Fortinet_Factory" {
 		t.Errorf("vip row = %+v", vip)
@@ -148,12 +155,13 @@ func TestDiscoveringOnFortiOS80HasNoZTNAServerObjectAndSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := res.(fgDiscovery)
-	if d.SSLVPN || len(d.ZTNA) != 3 {
-		t.Fatalf("8.0 discovery = %+v, want SSL VPN absent and the VIP plus two virtual hosts", d)
+	// the VIP, and the one virtual host it names as its authentication portal's; the other two nothing uses
+	if d.SSLVPN || len(d.ZTNA) != 2 || d.Unused != 2 {
+		t.Fatalf("8.0 discovery = %+v, want SSL VPN absent, the VIP and the host it names, and 2 unused hosts not offered", d)
 	}
 	for _, r := range d.ZTNA {
-		if r.Server != "" {
-			t.Errorf("8.0 has no ZTNA server object to name: %+v", r)
+		if r.Kind == "vhost" && (r.Name != "portal.example.com" || r.Server != "virtual IP ztna-vip") {
+			t.Errorf("an 8.0 virtual host should say which virtual IP names it: %+v", r)
 		}
 	}
 }

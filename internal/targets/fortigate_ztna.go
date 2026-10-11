@@ -122,6 +122,7 @@ type fgDiscovery struct {
 	Version string      `json:"version"`
 	SSLVPN  bool        `json:"ssl_vpn"` // false: this release has no SSL VPN
 	ZTNA    []fgZTNARow `json:"ztna"`
+	Unused  int         `json:"unused_virtual_hosts"` // virtual hosts nothing refers to: not offered
 	Notes   []string    `json:"notes,omitempty"`
 }
 
@@ -176,7 +177,16 @@ func (fortiGate) Discover(ctx context.Context, cfg map[string]string) (any, erro
 	if err != nil {
 		return nil, fmt.Errorf("list the ZTNA virtual hosts: %w", err)
 	}
-	// 7.6 only: which ZTNA server each belongs to. 8.0 has no such object, so a failure is not one.
+	// What uses each virtual host. A virtual host nothing refers to (the device's built-in ones, left
+	// over entries) is not a place a ZTNA server presents a certificate, so it is not offered. On 7.6
+	// the ZTNA server names them (its authentication portal and its API gateways); on 8.0, which has
+	// no such object, a virtual IP names its authentication portal's host.
+	usedByHost := map[string]string{}
+	for _, v := range vips {
+		if h := jstr(v, "auth-virtual-host"); h != "" {
+			usedByHost[h] = "virtual IP " + jstr(v, "name")
+		}
+	}
 	serverOfVIP, serverOfHost := map[string]string{}, map[string]string{}
 	if aps, err := c.listObjects(ctx, "firewall/access-proxy", nil); err == nil {
 		for _, ap := range aps {
@@ -186,12 +196,14 @@ func (fortiGate) Discover(ctx context.Context, cfg map[string]string) (any, erro
 			}
 			if v := jstr(ap, "auth-virtual-host"); v != "" {
 				serverOfHost[v] = name
+				usedByHost[v] = "ZTNA server " + name
 			}
 			var gws []map[string]json.RawMessage
 			_ = json.Unmarshal(ap["api-gateway"], &gws)
 			for _, gw := range gws {
 				if v := jstr(gw, "virtual-host"); v != "" {
 					serverOfHost[v] = name
+					usedByHost[v] = "ZTNA server " + name
 				}
 			}
 		}
@@ -206,7 +218,16 @@ func (fortiGate) Discover(ctx context.Context, cfg map[string]string) (any, erro
 		out.ZTNA = append(out.ZTNA, fgZTNARow{Kind: "vip", Name: jstr(v, "name"), Certs: jnames(v, "ssl-certificate"), Where: where, Server: serverOfVIP[jstr(v, "name")]})
 	}
 	for _, h := range vhosts {
-		out.ZTNA = append(out.ZTNA, fgZTNARow{Kind: "vhost", Name: jstr(h, "name"), Certs: jnames(h, "ssl-certificate"), Where: jstr(h, "host"), Server: serverOfHost[jstr(h, "name")]})
+		name := jstr(h, "name")
+		if usedByHost[name] == "" {
+			out.Unused++
+			continue
+		}
+		server := serverOfHost[name]
+		if server == "" { // 8.0: no ZTNA server object; say what refers to it
+			server = usedByHost[name]
+		}
+		out.ZTNA = append(out.ZTNA, fgZTNARow{Kind: "vhost", Name: name, Certs: jnames(h, "ssl-certificate"), Where: jstr(h, "host"), Server: server})
 	}
 	sort.SliceStable(out.ZTNA, func(i, j int) bool {
 		if out.ZTNA[i].Kind != out.ZTNA[j].Kind {

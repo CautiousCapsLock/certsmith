@@ -865,7 +865,8 @@ function ztnaPanel(form, kind, current, opts) {
     const rows = res.ztna || [];
     const known = new Set(rows.map(r => r.kind + ':' + r.name));
     out.replaceChildren(
-      h('div', { class: 'meta', style: 'margin:6px 0' }, 'FortiOS ' + (res.version || '?') + ' · ' + rows.length + (rows.length === 1 ? ' ZTNA object' : ' ZTNA objects') + ' found.'),
+      h('div', { class: 'meta', style: 'margin:6px 0' }, 'FortiOS ' + (res.version || '?') + ' · ' + rows.length + (rows.length === 1 ? ' ZTNA object' : ' ZTNA objects') + ' found.'
+        + (res.unused_virtual_hosts ? ' ' + res.unused_virtual_hosts + ' virtual host' + (res.unused_virtual_hosts === 1 ? '' : 's') + ' that nothing uses ' + (res.unused_virtual_hosts === 1 ? 'is' : 'are') + ' not listed.' : '')),
       ...(res.notes || []).map(n => h('div', { class: 'help' }, n)),
       rows.length ? h('table', { class: 'list ztna' },
         h('thead', {}, h('tr', {}, ['', 'ZTNA', 'Name', 'Address or host', 'Certificate now'].map(x => h('th', {}, x)))),
@@ -888,7 +889,7 @@ function ztnaPanel(form, kind, current, opts) {
           if (pick) pick.addEventListener('change', sync);
           sync();
           return h('tr', {}, h('td', {}, cb),
-            h('td', {}, r.kind === 'vip' ? 'Virtual IP' : 'Virtual host', r.server ? h('div', { class: 'meta' }, 'server ' + r.server) : null),
+            h('td', {}, r.kind === 'vip' ? 'Virtual IP' : 'Virtual host', r.server ? h('div', { class: 'meta' }, 'used by ' + r.server.replace(/^ZTNA server /, 'server ')) : null),
             h('td', { class: 'mono' }, r.name), h('td', { class: 'mono' }, r.where || '-'),
             h('td', {}, pick || (r.certs[0] || h('span', { class: 'meta' }, 'none')), warn));
         }))) : h('div', { class: 'meta' }, 'This FortiGate has no ZTNA virtual IPs or virtual hosts.'),
