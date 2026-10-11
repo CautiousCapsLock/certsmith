@@ -339,6 +339,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditAs(r, name, "user.setup", name, "first user created through the setup wizard")
+	s.recordLogin(r, name)
 	s.issue(w, r, u)
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -372,6 +373,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.lim.reset(keys...)
 	s.auditAs(r, u.Name, "signin", u.Name, "")
+	s.recordLogin(r, u.Name)
 	s.issue(w, r, u)
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -560,11 +562,38 @@ func (s *Server) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// publicUsers is the user list without password hashes.
+// recordLogin remembers when and from where a user last signed in, for the user list.
+func (s *Server) recordLogin(r *http.Request, name string) {
+	from := clientAddr(r)
+	_ = s.St.Update(func(db *model.DB) error {
+		for i := range db.Users {
+			if strings.EqualFold(db.Users[i].Name, name) {
+				db.Users[i].LastLogin, db.Users[i].LastLoginFrom = time.Now(), from
+			}
+		}
+		return nil
+	})
+}
+
+// publicUsers is the user list without password hashes, with each user's latest sign-in. A user who
+// last signed in before CertSmith kept that on the user itself is read from the audit log, as far
+// back as it goes.
 func publicUsers(db *model.DB) []map[string]any {
 	out := []map[string]any{}
 	for _, u := range db.Users {
-		out = append(out, map[string]any{"name": u.Name, "created": u.Created})
+		last, from := u.LastLogin, u.LastLoginFrom
+		if last.IsZero() {
+			for _, a := range db.Audit {
+				if a.Action == "signin" && strings.EqualFold(a.User, u.Name) && a.Time.After(last) {
+					last, from = a.Time, a.IP
+				}
+			}
+		}
+		m := map[string]any{"name": u.Name, "created": u.Created}
+		if !last.IsZero() {
+			m["last_login"], m["last_login_from"] = last, from
+		}
+		out = append(out, m)
 	}
 	return out
 }

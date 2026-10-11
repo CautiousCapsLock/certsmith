@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CautiousCapsLock/certsmith/internal/engine"
 	"github.com/CautiousCapsLock/certsmith/internal/model"
@@ -439,5 +440,141 @@ func TestYouCannotResetYourOwnPasswordThatWay(t *testing.T) {
 	call(t, a, "POST", srv.URL+"/api/users", map[string]string{"username": "sam", "password": pw2, "confirm": pw1}, false, nil)
 	if code, _, _ := call(t, a, "POST", srv.URL+"/api/users/sam/password", map[string]string{"password": "reset by admin 1", "confirm": pw1}, false, nil); code != 200 {
 		t.Fatalf("resetting another user must still work, got %d", code)
+	}
+}
+
+// ---- last sign-in on the user list ----
+
+type userRow struct {
+	Name          string    `json:"name"`
+	LastLogin     time.Time `json:"last_login"`
+	LastLoginFrom string    `json:"last_login_from"`
+}
+
+func userRows(t *testing.T, c *http.Client, base string) map[string]userRow {
+	t.Helper()
+	code, body, _ := call(t, c, "GET", base+"/api/state", nil, false, nil)
+	if code != 200 {
+		t.Fatalf("state: %d %s", code, body)
+	}
+	var st struct {
+		Users []userRow `json:"users"`
+	}
+	if err := json.Unmarshal([]byte(body), &st); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]userRow{}
+	for _, u := range st.Users {
+		out[u.Name] = u
+	}
+	return out
+}
+
+func TestTheUserListShowsWhenAndFromWhereEachUserLastSignedIn(t *testing.T) {
+	srv, ws := newTestServer(t)
+	a := setupAndLogin(t, srv)
+	if code, body, _ := call(t, a, "POST", srv.URL+"/api/users", map[string]string{"username": "sam", "password": pw2, "confirm": pw1}, false, nil); code != 200 {
+		t.Fatalf("create user: %d %s", code, body)
+	}
+	rows := userRows(t, a, srv.URL)
+	if rows["admin"].LastLogin.IsZero() {
+		t.Error("the first user signed in through the wizard: that is a sign-in")
+	}
+	if !rows["sam"].LastLogin.IsZero() {
+		t.Errorf("sam has never signed in, but the list shows %v", rows["sam"].LastLogin)
+	}
+
+	// sam signs in from an address behind the reverse proxy
+	c := newClient()
+	code, _, _ := call(t, c, "POST", srv.URL+"/api/login", creds("sam", pw2), false, func(r *http.Request) {
+		r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	})
+	if code != 200 {
+		t.Fatalf("sam login: %d", code)
+	}
+	sam := userRows(t, a, srv.URL)["sam"]
+	if sam.LastLogin.IsZero() || time.Since(sam.LastLogin) > time.Minute {
+		t.Errorf("sam's last sign-in = %v", sam.LastLogin)
+	}
+	if !strings.HasPrefix(sam.LastLoginFrom, "203.0.113.9 (via ") {
+		t.Errorf("last sign-in from = %q, want the forwarded address and the proxy it came through", sam.LastLoginFrom)
+	}
+
+	// a failed attempt changes nothing
+	before := sam.LastLogin
+	if _, code := loginAs(t, srv, "sam", "wrong password!!"); code != 401 {
+		t.Fatalf("wrong password = %d", code)
+	}
+	if got := userRows(t, a, srv.URL)["sam"].LastLogin; !got.Equal(before) {
+		t.Errorf("a failed sign-in moved the last sign-in from %v to %v", before, got)
+	}
+	_ = ws
+}
+
+// Users who last signed in before the user record kept it are read from the audit log.
+func TestAUserWithNoStoredSignInIsFilledFromTheAuditLog(t *testing.T) {
+	srv, ws := newTestServer(t)
+	a := setupAndLogin(t, srv)
+	when := time.Now().Add(-48 * time.Hour).UTC().Truncate(time.Second)
+	_ = ws.St.Update(func(db *model.DB) error {
+		for i := range db.Users {
+			db.Users[i].LastLogin, db.Users[i].LastLoginFrom = time.Time{}, ""
+		}
+		return nil
+	})
+	ws.St.AddAudit(model.AuditEntry{Time: when, User: "admin", IP: "198.51.100.4", Action: "signin", Subject: "admin"})
+	got := userRows(t, a, srv.URL)["admin"]
+	if !got.LastLogin.Equal(when) || got.LastLoginFrom != "198.51.100.4" {
+		t.Errorf("from the audit log: %v from %q, want %v from 198.51.100.4", got.LastLogin, got.LastLoginFrom, when)
+	}
+}
+
+// ---- how the sign-in throttle behaves (documented as tests) ----
+
+func TestTheThrottleLocksByAddressAndByAccountAndEndsWithTheWindow(t *testing.T) {
+	l := newLimiter()
+	for i := 0; i < maxFailures-1; i++ {
+		l.fail("ip:192.0.2.1", "user:admin")
+	}
+	if l.blocked("ip:192.0.2.1", "user:admin") {
+		t.Fatalf("blocked after %d failures, the limit is %d", maxFailures-1, maxFailures)
+	}
+	l.fail("ip:192.0.2.1", "user:admin")
+	if !l.blocked("ip:192.0.2.1", "user:other") {
+		t.Error("the address is blocked, so a different account from it must be too")
+	}
+	if !l.blocked("ip:198.51.100.7", "user:admin") {
+		t.Error("the account is blocked, so it must be from any address")
+	}
+	if l.blocked("ip:198.51.100.7", "user:other") {
+		t.Error("an unrelated address and account must not be blocked")
+	}
+	// the failures age out of the window: the lock ends by itself, and a restart clears it too
+	old := time.Now().Add(-failureWindow - time.Second)
+	for k := range l.fails {
+		for i := range l.fails[k] {
+			l.fails[k][i] = old
+		}
+	}
+	if l.blocked("ip:192.0.2.1", "user:admin") {
+		t.Error("still blocked after the window passed")
+	}
+}
+
+func TestBlockedAttemptsDoNotExtendTheLockAndASuccessClearsTheCount(t *testing.T) {
+	l := newLimiter()
+	for i := 0; i < maxFailures; i++ {
+		l.fail("ip:192.0.2.1")
+	}
+	before := len(l.fails["ip:192.0.2.1"])
+	for i := 0; i < 20; i++ {
+		l.blocked("ip:192.0.2.1") // what the sign-in does first: it does not record a failure when it refuses
+	}
+	if after := len(l.fails["ip:192.0.2.1"]); after != before {
+		t.Errorf("refused attempts were counted: %d -> %d", before, after)
+	}
+	l.reset("ip:192.0.2.1")
+	if l.blocked("ip:192.0.2.1") {
+		t.Error("a successful sign-in must clear the count")
 	}
 }

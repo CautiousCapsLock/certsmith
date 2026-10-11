@@ -1640,7 +1640,8 @@ function renderSettings() {
 
   const usersCard = () => card('Users', 'All users listed can sign in and have full administrative access. There are no separate roles.',
     h('div', { class: 'userlist' }, users.map(u => h('div', { class: 'userrow' },
-      h('div', {}, h('strong', {}, u.name), ' ', u.name === me ? chip('you', 'ok') : null, h('div', { class: 'meta' }, 'added ' + fmt(u.created))),
+      h('div', {}, h('strong', {}, u.name), ' ', u.name === me ? chip('you', 'ok') : null, h('div', { class: 'meta', title: 'Added ' + fmt(u.created) },
+        u.last_login && !zero(u.last_login) ? 'last signed in ' + fmt(u.last_login) + (u.last_login_from ? ' from ' + u.last_login_from : '') : 'no sign-in recorded')),
       // your own password has one place: the form at the bottom of this card
       u.name === me
         ? h('div', { class: 'meta' }, 'Change yours below')

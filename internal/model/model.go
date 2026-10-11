@@ -222,6 +222,10 @@ type User struct {
 	Name    string    `json:"name"`
 	Hash    string    `json:"hash"` // bcrypt
 	Created time.Time `json:"created"`
+
+	// the latest sign-in through the sign-in page (a script using HTTP basic authentication does not count)
+	LastLogin     time.Time `json:"last_login,omitzero"`
+	LastLoginFrom string    `json:"last_login_from,omitempty"` // as in the audit log: the address, and the proxy it came through
 }
 
 // PendingDNS is a TXT record CertSmith created for a DNS test and has not yet confirmed removed.
