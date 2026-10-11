@@ -41,6 +41,12 @@ h2 { font-size: 15px; margin: 0; }
 .sub { color: var(--muted); margin: 0 0 18px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.between { justify-content: space-between; }
+/* the heading of a page: the title and its explanation on the left, the page's buttons on the right. The
+   explanation wraps inside its own column however long it is, so the buttons never drop to a line of their own. */
+.pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.pagehead > :first-child { flex: 1 1 0; min-width: 0; }
+.pagehead > .row { flex: none; }
+.pagehead > .row > .btn { flex: none; white-space: nowrap; }
 .wrap { flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
 
@@ -159,6 +165,8 @@ table.list th { border-top: 0; color: var(--muted); font-weight: 600; font-size:
 @media (max-width: 760px) {
   .trow { grid-template-columns: 1fr; gap: 6px; }
   .card > .head { flex-direction: column; }
+  .pagehead { flex-direction: column; }
+  .pagehead > .row { flex-wrap: wrap; }
   .card > .head > .row { min-width: 0; justify-content: flex-start; }
   .expiry { text-align: left; }
   main { padding: 16px 14px 50px; }

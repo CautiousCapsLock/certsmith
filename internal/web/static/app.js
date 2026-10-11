@@ -637,7 +637,7 @@ function renderOverview() {
     || targets.some(t => t.cert_id === c.id && targetState(t, c) === 'action'))).length;
   const badTargets = targets.filter(t => targetBad(t, byId(certs, t.cert_id))).length;
   root.append(
-    h('div', { class: 'row between wrap', style: 'margin-bottom:14px' },
+    h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Certificates'), h('p', { class: 'sub', style: 'margin:0' },
         'Certificates issued and renewed by CertSmith, with the targets each one is deployed to.'
           + (S.settings.acme_directory === 'staging' ? " Let's Encrypt is set to staging: certificates it issues are for testing and are not trusted by clients."
@@ -748,7 +748,7 @@ function renderTargets() {
   search.addEventListener('input', () => { targetFilter = search.value; draw(); });
 
   const node = h('div', {},
-    h('div', { class: 'row between', style: 'margin-bottom:14px' },
+    h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Targets'), h('p', { class: 'sub', style: 'margin:0' }, 'Devices and services that receive certificates. Each target is updated automatically when its certificate is issued or renewed.')),
       h('button', { class: 'btn primary', onclick: () => targetForm(null) }, 'Add target')),
     rows.length ? h('div', {},
@@ -771,7 +771,7 @@ function renderDNS() {
     h('h2', {}, title), h('p', { class: 'meta', style: 'margin:2px 0 10px' }, intro), body);
   const none = text => h('div', { class: 'card empty' }, text);
   return h('div', {},
-    h('div', { class: 'row between', style: 'margin-bottom:14px' },
+    h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Certificate providers'), h('p', { class: 'sub', style: 'margin:0' },
         'A provider defines the certificate authority that issues certificates and the DNS credentials used to validate domain ownership. Each certificate is assigned one provider. Certificates issued elsewhere are imported here too.')),
       h('button', { class: 'btn primary', onclick: () => providerForm(null) }, 'Add provider')),
@@ -2093,7 +2093,7 @@ function renderSettings() {
   allBtn.addEventListener('click', () => { const open = bars.every(d => !d.open); bars.forEach(d => { d.open = open; }); });
 
   return h('div', {},
-    h('div', { class: 'row between wrap', style: 'margin-bottom:14px' },
+    h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Settings'),
         h('p', { class: 'sub', style: 'margin:0' }, "Configuration for Let's Encrypt, DNS validation, renewal and monitoring, alerting, the HTTPS certificate for this page, and users.")),
       allBtn),
