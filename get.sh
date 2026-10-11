@@ -8,6 +8,12 @@
 #
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
 #
+# A minimal system may have neither curl nor wget. wget works the same way:
+#
+#   bash -c "$(wget -qO- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+#
+# and curl can be installed first with: apt-get update && apt-get install -y curl
+#
 # Environment:
 #   CERTSMITH_VERSION   release to install, for example v0.12.0 (default: the latest release)
 #   CERTSMITH_REPO      owner/name of the repository (default: CautiousCapsLock/certsmith)
@@ -25,8 +31,25 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-have curl || die "curl is required"
+# curl, or wget where there is no curl (a minimal container image often has neither)
+if   have curl; then DL=curl
+elif have wget; then DL=wget
+else die "curl or wget is required to download the release. On a minimal system, install one first: apt-get update && apt-get install -y curl"
+fi
 have tar  || die "tar is required"
+
+# download URL FILE: fails on an HTTP error
+download() {
+  if [ "$DL" = curl ]; then curl -fsSL -o "$2" "$1"; else wget -q -O "$2" "$1"; fi
+}
+# the address a URL redirects to (GitHub redirects /releases/latest to the release's page)
+redirect_target() {
+  if [ "$DL" = curl ]; then
+    curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"
+  else
+    wget -q -S --max-redirect=0 -O /dev/null "$1" 2>&1 | tr -d '\r' | awk 'tolower($1) == "location:" { print $2; exit }'
+  fi
+}
 [ "$(uname -s)" = Linux ] || die "CertSmith installs on Linux with systemd; this system is $(uname -s)"
 
 case "$(uname -m)" in
@@ -37,8 +60,9 @@ esac
 
 # Which release: the one asked for, or the one GitHub redirects /releases/latest to.
 if [ -z "$VERSION" ]; then
-  url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$BASE/$REPO/releases/latest") \
+  url=$(redirect_target "$BASE/$REPO/releases/latest") \
     || die "could not reach $BASE/$REPO/releases/latest"
+  [ -n "$url" ] || die "could not reach $BASE/$REPO/releases/latest, or it has no release (is the repository private?)"
   VERSION="${url##*/}"
 fi
 case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac
@@ -57,8 +81,8 @@ trap 'rm -rf "$TMP"' EXIT INT TERM HUP
 
 say "CertSmith $VERSION for linux/$ARCH"
 say "Downloading $PKG.tar.gz ..."
-curl -fsSL -o "$TMP/$PKG.tar.gz" "$REL/$PKG.tar.gz" || die "download failed: $REL/$PKG.tar.gz"
-curl -fsSL -o "$TMP/SHA256SUMS" "$REL/SHA256SUMS"   || die "download failed: $REL/SHA256SUMS"
+download "$REL/$PKG.tar.gz" "$TMP/$PKG.tar.gz" || die "download failed: $REL/$PKG.tar.gz"
+download "$REL/SHA256SUMS" "$TMP/SHA256SUMS"   || die "download failed: $REL/SHA256SUMS"
 
 # Verify before anything is unpacked or run.
 want=$(awk -v n="$PKG.tar.gz" '{ f = $2; sub(/^\*/, "", f); sub(/^\.\//, "", f); if (f == n) { print $1; exit } }' "$TMP/SHA256SUMS")

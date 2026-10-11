@@ -28,6 +28,16 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmi
 
 The script downloads the latest release for the host architecture, verifies its SHA-256 checksum, and runs the installer packaged with it. The installer prints the address of the web interface and the fingerprint of its certificate.
 
+A minimal system, such as a container image, may have neither `curl` nor `wget`. Install one first, or use `wget` if that is present (the script uses whichever it finds):
+
+```sh
+apt-get update && apt-get install -y curl
+# or, where wget is installed:
+bash -c "$(wget -qO- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+```
+
+The commands read from GitHub without credentials, so they need a public repository. For a private one, copy the release archive to the host and install it by hand (see [Installation](#installation)).
+
 Installer options follow the script, after a placeholder argument:
 
 ```sh

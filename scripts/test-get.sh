@@ -36,6 +36,24 @@ fi
 f="$STUB_FIXTURES/${url##*/}"
 [ -f "$f" ] || exit 22
 cp "$f" "$out"'
+# wget: the same fixtures. "-S ... URL" prints the redirect the way wget -S does; "-O FILE URL" copies.
+stub wget 'out=""; spider=0; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -O) out="$2"; shift 2 ;;
+    -S) spider=1; shift ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+echo "wget $url" >> "$STUB_LOG"
+if [ "$spider" = 1 ]; then
+  [ -n "${STUB_NO_RELEASE:-}" ] && exit 8
+  printf "  HTTP/1.1 302 Found\r\n  Location: %s/tag/%s\r\n" "${url%/latest}" "${STUB_LATEST:-v9.9.9}" >&2; exit 8
+fi
+f="$STUB_FIXTURES/${url##*/}"
+[ -f "$f" ] || exit 8
+cp "$f" "$out"'
 stub uname 'case "${1:-}" in -s) echo "${STUB_OS:-Linux}" ;; -m) echo "${STUB_ARCH:-x86_64}" ;; *) echo Linux ;; esac'
 stub id 'if [ "${1:-}" = "-u" ]; then echo "${STUB_UID:-0}"; else exec /usr/bin/id "$@"; fi'
 stub sudo 'echo "sudo $*" >> "$STUB_LOG"; exec "$@"'
@@ -150,6 +168,33 @@ suite() {
   mv "$work/stubs/sudo" "$work/stubs/sudo.off"; STUB_UID=1000 run
   mv "$work/stubs/sudo.off" "$work/stubs/sudo"
   [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "non-root without sudo is refused" || fail "non-root without sudo" "$OUT"
+
+  # a system with only wget (or neither): the same installer, or a message that says what to install
+  tools="$work/tools"; rm -rf "$tools"; mkdir -p "$tools"
+  for t in sh awk grep head mktemp rm tar sha256sum shasum openssl cat tr sed dirname basename mkdir cp sort pwd; do
+    p=$(command -v "$t" 2>/dev/null) && [ -x "$p" ] && ln -s "$p" "$tools/$t"
+  done
+  nocurl() { # run with a PATH that has the stubs (uname, id, sudo, and wget unless $1 is none) but no curl
+    mkdir -p "$work/stubs2"; rm -f "$work/stubs2"/*
+    for s in uname id sudo; do cp "$work/stubs/$s" "$work/stubs2/$s"; done
+    [ "${1:-}" = none ] || cp "$work/stubs/wget" "$work/stubs2/wget"
+    OUT=$(CERTSMITH_BASE_URL=https://example.test CERTSMITH_REPO=owner/repo STUB_LOG="$LOG" STUB_FIXTURES="$FIX" \
+          TMPDIR="$work/tmp" PATH="$work/stubs2:$tools" "$(command -v "$SH")" "$here/get.sh" 2>&1)
+    RC=$?
+  }
+  newcase wget
+  nocurl
+  if logged "wget https://example.test/owner/repo/releases/latest" && logged "INSTALLER cwd=certsmith-9.9.9-linux-amd64"; then
+    pass "with only wget, the latest release is found, downloaded and installed"
+  else fail "wget only" "$OUT $(cat "$LOG")"; fi
+  ! logged "curl " && pass "and curl was not needed" || fail "no curl" "$(cat "$LOG")"
+  newcase nofetch
+  nocurl none
+  case "$OUT" in *"curl or wget is required"*"apt-get install -y curl"*) pass "with neither, the message says what to install" ;; *) fail "neither tool" "$OUT" ;; esac
+  [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "and nothing was installed" || fail "nothing installed" "$OUT"
+  newcase wgetprivate
+  STUB_NO_RELEASE=1 nocurl
+  case "$OUT" in *"private"*) pass "with wget, a repository with no visible release is explained" ;; *) fail "wget private repo" "$OUT" ;; esac
 
   newcase hostile
   CERTSMITH_VERSION='v1.0.0;rm -rf /' run
