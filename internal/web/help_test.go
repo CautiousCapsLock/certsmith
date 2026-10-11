@@ -97,6 +97,12 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("Settings must offer the theme choice %s", choice)
 		}
 	}
+	// a device that is installed by hand says so, and has no Deploy button
+	for _, want := range []string{"const isManual =", "import needed", "isManual(t.kind)"} {
+		if !strings.Contains(get("/app.js"), want) {
+			t.Errorf("the page must handle manually installed targets: missing %q", want)
+		}
+	}
 	// an unreachable endpoint is explained in words, with the exact error kept underneath
 	for _, want := range []string{"function describeProbeError(", "No answer: the connection timed out", "the device refused the connection", "function deploymentNotes("} {
 		if !strings.Contains(strings.ToLower(get("/app.js")), strings.ToLower(want)) {

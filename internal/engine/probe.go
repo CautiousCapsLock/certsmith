@@ -144,6 +144,10 @@ func (e *Engine) probeTarget(ctx context.Context, id string) {
 			expect = c.Serial
 		}
 	}
+	manual := false
+	if p, ok := plugin.TargetFor(t.Kind); ok {
+		manual = p.Descriptor().Manual
+	}
 	prev := map[string]model.ProbeResult{}
 	for _, p := range t.Probes {
 		prev[p.Addr] = p
@@ -151,8 +155,9 @@ func (e *Engine) probeTarget(ctx context.Context, id string) {
 	var results []model.ProbeResult
 	for _, a := range addrs {
 		r := ProbeAddr(ctx, strings.TrimSpace(a), expect)
-		// A mismatch only counts as bad once we believe the target is up to date.
-		bad := r.Error != "" || (!r.Match && t.DeployedSerial == expect && expect != "")
+		// A mismatch only counts as bad once we believe the target is up to date. A target that is
+		// installed by hand is never "deployed", so there the current certificate is the expectation.
+		bad := r.Error != "" || (!r.Match && expect != "" && (manual || t.DeployedSerial == expect))
 		if bad {
 			r.Bad = prev[r.Addr].Bad + 1
 		}

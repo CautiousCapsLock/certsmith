@@ -60,7 +60,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 | Issuing | ACME with DNS-01 validation only. Let's Encrypt, and certificate authorities that use External Account Binding (ZeroSSL, Sectigo, Google Trust Services, or a custom directory). Single-name and wildcard certificates. |
 | Importing | A certificate issued elsewhere (a company CA, a purchased certificate) can be imported from a PKCS#12 file or PEM files, then deployed, monitored and alerted on like any other. It is replaced by uploading a new one; CertSmith never issues or renews it. |
 | Renewal | Automatic renewal at a configurable threshold, with expiry and failure alerts by email and webhook. The events sent to each channel are selectable. |
-| Deployment | FortiGate (REST API), FortiManager and FortiAnalyzer (JSON-RPC), Proxmox VE, generic webhook, local files, monitor-only, and CertSmith's own web interface. |
+| Deployment | FortiGate (REST API), FortiManager and FortiAnalyzer (JSON-RPC), Proxmox VE, generic webhook, local files, monitor-only, and CertSmith's own web interface. FortiClient EMS is monitored, not deployed to: it has no API for installing a server certificate, so the certificate is imported in its console and CertSmith checks the console port (443) and the FortiClient port (8013). |
 | Verification | Scheduled and on-demand checks of the certificate each target is serving: correct certificate, remaining validity and complete chain. |
 | Visibility | Every API call sent to a device is recorded with the device's response and shown beside the target, together with a description of each call a target type can make. |
 | Auditing | A log of certificate operations and a separate audit log of administrative actions. Both can be filtered. |

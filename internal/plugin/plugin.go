@@ -63,7 +63,10 @@ type Descriptor struct {
 	Vendor string `json:"vendor,omitempty"` // groups targets in the UI's first drop-down
 	// Hidden types are left out of the general "Add target" list. They are created from
 	// somewhere more specific (for instance the Settings page) and still work as targets.
-	Hidden bool    `json:"hidden,omitempty"`
+	Hidden bool `json:"hidden,omitempty"`
+	// Manual types cannot be deployed to: the certificate is installed by hand on the device, and
+	// CertSmith checks what the device serves (and alerts when it is not the current certificate).
+	Manual bool    `json:"manual,omitempty"`
 	Label  string  `json:"label"`
 	Help   string  `json:"help,omitempty"`
 	Fields []Field `json:"fields"`

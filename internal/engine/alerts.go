@@ -9,6 +9,7 @@ import (
 
 	"github.com/CautiousCapsLock/certsmith/internal/model"
 	"github.com/CautiousCapsLock/certsmith/internal/notify"
+	"github.com/CautiousCapsLock/certsmith/internal/plugin"
 )
 
 type alert struct {
@@ -65,7 +66,11 @@ func desiredAlerts(db *model.DB) map[string]alert {
 					out[key+":chain"] = alert{"warn", fmt.Sprintf("%s (%s) sends the certificate without its intermediate CA, so browsers may show it as untrusted", t.Name, p.Addr)}
 				}
 				if !p.Match && p.Bad >= 2 {
-					out[key+":mismatch"] = alert{"crit", fmt.Sprintf("%s (%s) is serving a different certificate (serial %s) than the one deployed", t.Name, p.Addr, short(p.Serial))}
+					if pl, ok := plugin.TargetFor(t.Kind); ok && pl.Descriptor().Manual {
+						out[key+":mismatch"] = alert{"crit", fmt.Sprintf("%s (%s) is serving a different certificate (serial %s) than the current one: import the new certificate on the device", t.Name, p.Addr, short(p.Serial))}
+					} else {
+						out[key+":mismatch"] = alert{"crit", fmt.Sprintf("%s (%s) is serving a different certificate (serial %s) than the one deployed", t.Name, p.Addr, short(p.Serial))}
+					}
 				}
 			}
 		}

@@ -274,9 +274,20 @@ function chipTitled(text, cls, title) { const c = chip(text, cls); c.title = tit
 function chip(text, cls) { return h('span', { class: 'chip ' + (cls || '') }, text); }
 
 // ---- overview ---------------------------------------------------------------------
+// A device whose certificate is installed by hand (no API to do it): CertSmith only checks what it serves.
+const isManual = kind => !!((schema.targets.find(d => d.kind === kind) || {}).manual);
+
 function targetStatus(t, c) {
   if (!t.enabled) return chip('disabled');
   if (t.kind === 'watch') return chip('monitoring');
+  if (isManual(t.kind)) {
+    const ps = t.probes || [];
+    if (!c || !c.serial) return chip('waiting for certificate', 'warn');
+    if (!ps.length) return chip('waiting for the first check');
+    if (ps.some(p => p.error)) return chipTitled('unreachable', 'bad', 'The device could not be reached on every checked port.');
+    if (ps.every(p => p.match)) return chipTitled('installed', 'ok', 'The device is serving this certificate.');
+    return chipTitled('import needed', 'warn', 'The device is serving a different certificate. Import the current one in the device console; CertSmith cannot do it for this device.');
+  }
   if (t.last_error) return chip('deploy failed', 'bad');
   if (!c || !c.serial) return chip('waiting for certificate', 'warn');
   if (t.paused) return chipTitled(t.deployed_serial !== c.serial ? 'paused: new certificate waiting' : 'paused', 'warn',
@@ -288,7 +299,7 @@ function targetStatus(t, c) {
 // The device's IP or domain, as shown to people: host (and the port when it is not the usual one).
 function targetAddress(t) {
   const c = t.config || {};
-  const usual = { fortigate: '443', fortimanager: '443', fortianalyzer: '443', pve: '8006' }[t.kind];
+  const usual = { fortigate: '443', fortimanager: '443', fortianalyzer: '443', forticlientems: '443', pve: '8006' }[t.kind];
   if (c.host) {
     let host = c.host.trim(), port = (c.port || '').trim();
     const m = /^([^:\[\]]+):(\d+)$/.exec(host); // "host:port" typed into the host box by an older version
@@ -350,7 +361,7 @@ function probeLine(p, managed) {
 // Before the first deployment the action is Deploy (always a deliberate click). Once a target has
 // been deployed to, renewals go out by themselves and the action becomes Pause / Resume.
 function targetAction(t, c) {
-  if (t.kind === 'watch') return null;
+  if (t.kind === 'watch' || isManual(t.kind)) return null;
   if (t.deploying) return h('button', { class: 'btn small', disabled: true }, spinner(), ' Deploying…');
   if (!t.auto_deploy) {
     const ready = c && c.serial && t.deployed_serial !== c.serial;
@@ -366,7 +377,7 @@ function targetAction(t, c) {
 // Once a target is armed its main button is Pause/Resume, so running the deployment again by hand
 // (after changing a setting on the device, or to retry) needs a button of its own.
 function redeployButton(t) {
-  if (t.kind === 'watch' || t.deploying || !t.auto_deploy) return null;
+  if (t.kind === 'watch' || isManual(t.kind) || t.deploying || !t.auto_deploy) return null;
   return h('button', { class: 'btn small ghost', title: 'Deploy the current certificate to this device again, now',
     onclick: () => act('POST', `/api/targets/${t.id}/deploy`, 'Deployment started') }, 'Redeploy');
 }
@@ -1193,7 +1204,7 @@ function pluginForm(kinds, current, extra, opts) {
   const holder = h('div');
   let form;
   // the main product of each vendor first, the rest alphabetical
-  const KIND_ORDER = ['fortigate', 'fortimanager', 'fortianalyzer', 'pve', 'webhook', 'files', 'watch'];
+  const KIND_ORDER = ['fortigate', 'fortimanager', 'fortianalyzer', 'forticlientems', 'pve', 'webhook', 'files', 'watch'];
   const kindRank = d => { const i = KIND_ORDER.indexOf(d.kind); return i < 0 ? 99 : i; };
   const fillKinds = keep => {
     const ordered = kinds.filter(k => vendorOf(k) === vendorSel.value).sort((a, b) => kindRank(a) - kindRank(b) || a.label.localeCompare(b.label));
@@ -1504,7 +1515,7 @@ function targetForm(t, presetCert, presetKind) {
         : `Delete target "${t.name}"? The certificate stays on the device.`)) return;
       await submit(e.target, async () => { await api('DELETE', '/api/targets/' + t.id); close(); toast('Deleted'); });
     } }, own ? 'Stop managing' : 'Delete') : null,
-    !isNew && t.kind !== 'watch' ? h('button', { class: 'btn', title: 'Deploy the current certificate to this device now, with the settings as last saved',
+    !isNew && t.kind !== 'watch' && !isManual(t.kind) ? h('button', { class: 'btn', title: 'Deploy the current certificate to this device now, with the settings as last saved',
       onclick: e => submit(e.target, async () => { await api('POST', '/api/targets/' + t.id + '/deploy'); close(); toast('Deployment started'); }) }, 'Deploy now') : null,
     testMsg,
     own ? null : h('button', { class: 'btn ghost', title: 'What the plugin sends to the device, and what was sent', onclick: () =>
