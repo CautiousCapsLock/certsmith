@@ -109,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/targets/{id}/resume", s.audited("target.resume", "target", s.pauseTarget(false)))
 	mux.HandleFunc("GET /api/targets/{id}/calls", s.targetCalls)
 	mux.HandleFunc("POST /api/test-target", s.testTarget)
+	mux.HandleFunc("POST /api/discover-target", s.discoverTarget)
 	mux.HandleFunc("POST /api/probe", s.audited("endpoints.check", "", s.probe))
 
 	// No request body is larger than an uploaded certificate with its key, a few hundred KB.
@@ -1185,6 +1186,54 @@ func (s *Server) deployTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 // testTarget checks connectivity/credentials for the submitted (unsaved) form values.
+// discoverTarget asks a device what it uses certificates for, without changing it: the answer fills
+// the choices in the target dialog (for a FortiGate, its ZTNA servers).
+func (s *Server) discoverTarget(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID     string            `json:"id"`
+		Kind   string            `json:"kind"`
+		Config map[string]string `json:"config"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	p, ok := plugin.TargetFor(in.Kind)
+	if !ok {
+		fail(w, 400, "unknown target type")
+		return
+	}
+	var old map[string]string
+	var trusted string
+	s.St.View(func(db *model.DB) {
+		for _, t := range db.Targets {
+			if t.ID == in.ID {
+				old, trusted = t.Config, t.DeployedSHA256
+			}
+		}
+	})
+	cfg, err := p.Descriptor().Validate(in.Config)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	stored := s.merge(p.Descriptor(), cfg, old)
+	res, calls, err := s.Eng.DiscoverTarget(r.Context(), in.ID, in.Kind, stored, trusted)
+	if err != nil {
+		// a device whose certificate cannot be verified: send its details so the dialog can ask, as for a test
+		if info := s.Eng.UntrustedCert(r.Context(), in.Kind, stored, err); info != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "the device's certificate is not trusted", "untrusted": info})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "calls": calls})
+		return
+	}
+	writeJSON(w, map[string]any{"result": res, "calls": calls})
+}
+
 func (s *Server) testTarget(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ID     string            `json:"id"`

@@ -787,6 +787,35 @@ func (e *Engine) TestTargetCalls(ctx context.Context, id, kind string, cfg map[s
 	return msg, calls, err
 }
 
+// DiscoverTarget asks a plugin that can inspect its device what it holds (read-only). The calls it
+// makes are returned like those of a test, and added to the target's history when id names one.
+func (e *Engine) DiscoverTarget(ctx context.Context, id, kind string, cfg map[string]string, trusted string) (any, []model.APICall, error) {
+	p, ok := plugin.TargetFor(kind)
+	if !ok {
+		return nil, nil, fmt.Errorf("unknown target kind %q", kind)
+	}
+	d, ok := p.(plugin.Discoverer)
+	if !ok {
+		return nil, nil, fmt.Errorf("this type of target cannot look at the device")
+	}
+	open, err := e.OpenConfig(p.Descriptor(), cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if trusted != "" {
+		open["_trusted_sha256"] = trusted
+	}
+	tctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	tr := plugin.NewTrace("test")
+	out, err := d.Discover(plugin.WithTrace(tctx, tr), open)
+	calls := tr.Calls()
+	if id != "" {
+		e.recordCalls(id, calls)
+	}
+	return out, calls, err
+}
+
 // ---- API call history ----------------------------------------------------------------------
 
 // keepCalls is how many recent API calls are remembered per target: several deployments' worth.

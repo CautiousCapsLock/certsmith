@@ -103,6 +103,12 @@ func TestTheHeaderHasTheReadmeButtonAndTheCertificatesPageAnExplainedCheckEndpoi
 			t.Errorf("the certificate download dialog is incomplete: missing %q", want)
 		}
 	}
+	// a FortiGate's ZTNA servers are discovered, chosen, and SSL VPN is switched off where it is gone
+	for _, want := range []string{"function ztnaPanel(", "Look for ZTNA servers", "'/api/discover-target'", "Removed in FortiOS 7.6"} {
+		if !strings.Contains(get("/app.js"), want) {
+			t.Errorf("the ZTNA panel is incomplete: missing %q", want)
+		}
+	}
 	// a certificate that only needs putting on a device is "Action needed", not an error
 	for _, want := range []string{"function targetState(", "'Action needed'", "needs a deployment or a manual import"} {
 		if !strings.Contains(get("/app.js"), want) {

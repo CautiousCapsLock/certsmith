@@ -33,6 +33,7 @@ type fakeFGT struct {
 	failCA      bool              // make CA imports fail
 	hideUserCAs bool              // the CA list does not show user-added CAs at all
 	realCAs     bool              // behave like current FortiOS: the CA list has no certificate bodies, a duplicate import is error -328
+	version     string            // what monitor/system/status reports (default v7.4.5, which still has SSL VPN)
 	srv         *httptest.Server
 }
 
@@ -57,7 +58,11 @@ func (f *fakeFGT) handle(w http.ResponseWriter, r *http.Request) {
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	switch {
 	case p == "/api/v2/monitor/system/status":
-		reply(map[string]any{"version": "v7.6.1", "build": 3000, "serial": "FGVMTEST", "results": map[string]any{"hostname": "fake"}})
+		v := f.version
+		if v == "" {
+			v = "v7.4.5"
+		}
+		reply(map[string]any{"version": v, "build": 3000, "serial": "FGVMTEST", "results": map[string]any{"hostname": "fake"}})
 	case p == "/api/v2/monitor/vpn-certificate/local/import" && r.Method == http.MethodPost:
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -185,7 +190,7 @@ func TestFortiGateDeploy(t *testing.T) {
 	}
 	t.Log(msg)
 
-	name := certName("certsmith", b, 35)
+	name := fgCertName("certsmith", b.Name, b, 35)
 	imp := f.imported[name]
 	if imp == nil {
 		t.Fatalf("certificate %s not imported; have %v", name, f.imported)
@@ -254,7 +259,7 @@ func TestFortiGateBadToken(t *testing.T) {
 func TestFortiGateTest(t *testing.T) {
 	f := newFakeFGT(t)
 	msg, err := fortiGate{}.Test(context.Background(), fgCfg(f))
-	if err != nil || !strings.Contains(msg, "v7.6.1") {
+	if err != nil || !strings.Contains(msg, "v7.4.5") {
 		t.Fatalf("msg=%q err=%v", msg, err)
 	}
 }

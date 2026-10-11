@@ -818,6 +818,112 @@ function renderEvents() {
 }
 
 // ---- forms ------------------------------------------------------------------------------
+
+// Does a certificate name list cover this host name? A wildcard covers exactly one label.
+function nameCovered(host, names) {
+  host = String(host || '').toLowerCase();
+  return (names || []).some(n => {
+    n = String(n).toLowerCase();
+    if (n === host) return true;
+    if (!n.startsWith('*.')) return false;
+    const rest = n.slice(2);
+    return host.endsWith('.' + rest) && !host.slice(0, -rest.length - 1).includes('.');
+  });
+}
+
+// The ZTNA part of a FortiGate target: look at the device (read-only), list the ZTNA servers' certificates
+// and let the administrator choose which entries CertSmith replaces. Nothing is chosen unless ticked.
+// The choice is kept in the hidden "ztna" setting as lines of  vip;<name>;<certificate>  or  vhost;...
+function ztnaPanel(form, kind, current, opts) {
+  const chosen = new Map(); // "vip:name" -> certificate entry to replace
+  for (const line of String(form.by.ztna.get() || '').split('\n').map(x => x.trim()).filter(Boolean)) {
+    const [k, n, ...rest] = line.split(';');
+    if (k && n && rest.length) chosen.set(k + ':' + n, rest.join(';'));
+  }
+  const save = () => { form.by.ztna.input.value = [...chosen].map(([key, entry]) => key.replace(':', ';') + ';' + entry).join('\n'); };
+  const out = h('div');
+  const note = h('div', { class: 'help' });
+  const gone = ver => !!ver && (v => { const m = /^v?(\d+)\.(\d+)/.exec(v); return !!m && (+m[1] > 7 || (+m[1] === 7 && +m[2] >= 6)); })(ver);
+  // SSL VPN does not exist from FortiOS 7.6: its tick is switched off, with the reason
+  const applyVersion = ver => {
+    const uses = form.by.uses;
+    if (!uses || !uses.boxes) return;
+    const box = uses.boxes.find(b => b.c.value === 'ssl-vpn');
+    if (!box) return;
+    const off = gone(ver);
+    box.cb.disabled = off;
+    if (off) box.cb.checked = false;
+    const small = box.cb.parentElement.querySelector('small');
+    if (small && off) small.textContent = 'Removed in FortiOS 7.6 (' + ver + '): ZTNA and agentless VPN replace it. See the ZTNA servers below.';
+  };
+  applyVersion(form.by.fos_version ? form.by.fos_version.get() : '');
+
+  const render = res => {
+    if (form.by.fos_version) form.by.fos_version.input.value = res.version || '';
+    applyVersion(res.version);
+    const domains = (opts.certDomains ? opts.certDomains() : []) || [];
+    const rows = res.ztna || [];
+    const known = new Set(rows.map(r => r.kind + ':' + r.name));
+    out.replaceChildren(
+      h('div', { class: 'meta', style: 'margin:6px 0' }, 'FortiOS ' + (res.version || '?') + ' · ' + rows.length + (rows.length === 1 ? ' ZTNA object' : ' ZTNA objects') + ' found.'),
+      ...(res.notes || []).map(n => h('div', { class: 'help' }, n)),
+      rows.length ? h('table', { class: 'list ztna' },
+        h('thead', {}, h('tr', {}, ['', 'ZTNA', 'Name', 'Address or host', 'Certificate now'].map(x => h('th', {}, x)))),
+        h('tbody', {}, rows.map(r => {
+          const key = r.kind + ':' + r.name;
+          const cb = h('input', { type: 'checkbox', 'aria-label': 'Replace the certificate of ' + r.name });
+          cb.checked = chosen.has(key);
+          // which entry of the list is replaced: the one it holds, or a choice when it holds several
+          const pick = r.certs.length > 1 ? h('select', {}, r.certs.map(c => h('option', { value: c }, c))) : null;
+          if (pick && chosen.has(key) && r.certs.includes(chosen.get(key))) pick.value = chosen.get(key);
+          const warn = h('div', { class: 'err small' });
+          const sync = () => {
+            const entry = pick ? pick.value : r.certs[0];
+            if (cb.checked && entry) chosen.set(key, entry); else chosen.delete(key);
+            save();
+            warn.textContent = cb.checked && r.kind === 'vhost' && r.where && domains.length && !nameCovered(r.where, domains)
+              ? 'The certificate chosen for this target does not cover ' + r.where + '.' : '';
+          };
+          cb.addEventListener('change', sync);
+          if (pick) pick.addEventListener('change', sync);
+          sync();
+          return h('tr', {}, h('td', {}, cb),
+            h('td', {}, r.kind === 'vip' ? 'Virtual IP' : 'Virtual host', r.server ? h('div', { class: 'meta' }, 'server ' + r.server) : null),
+            h('td', { class: 'mono' }, r.name), h('td', { class: 'mono' }, r.where || '-'),
+            h('td', {}, pick || (r.certs[0] || h('span', { class: 'meta' }, 'none')), warn));
+        }))) : h('div', { class: 'meta' }, 'This FortiGate has no ZTNA virtual IPs or virtual hosts.'),
+      // choices whose object has gone: kept visible so they are not dropped without notice
+      ...[...chosen.keys()].filter(k => !known.has(k)).map(k =>
+        h('div', { class: 'err small' }, 'Chosen earlier but no longer on the device: ' + k.replace(':', ' ') + '. Untick it by saving after removing it here.')));
+  };
+
+  const btn = h('button', { type: 'button', class: 'btn' }, 'Look for ZTNA servers');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; note.textContent = 'Asking the FortiGate…';
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await api('POST', '/api/discover-target', { id: current.id || '', kind, config: form.read() });
+          note.textContent = ''; render(r.result); return;
+        } catch (err) {
+          if (err.data && err.data.untrusted && attempt === 0) { // an untrusted certificate: ask once, as Test connection does
+            if (await confirmTrust(err.data.untrusted, form.by.pin_sha256 ? form.by.pin_sha256.get() : '')) {
+              if (form.by.pin_sha256) { form.by.pin_sha256.input.value = err.data.untrusted.fingerprint; if (form.paintTrust) form.paintTrust(); }
+              continue;
+            }
+            note.textContent = 'Certificate not trusted.'; return;
+          }
+          throw err;
+        }
+      }
+    } catch (e) { note.className = 'err small'; note.textContent = e.message; } finally { btn.disabled = false; }
+  });
+  return h('div', { class: 'ztnapanel' },
+    h('div', { class: 'sect' }, 'ZTNA servers and agentless VPN'),
+    h('p', { class: 'meta', style: 'margin:0 0 8px' },
+      'From FortiOS 7.6 the certificate of a ZTNA server is set on its virtual IP or virtual host. Look at the device, then tick the entries CertSmith should replace each time it deploys. Nothing is replaced unless it is ticked, and only the ticked certificate entry changes.'),
+    btn, note, out);
+}
 // What the server shows in place of a saved secret. It cannot be revealed: the real
 // value never leaves the server once it is stored.
 const MASK = '********';
@@ -865,7 +971,7 @@ function fieldEl(f, value) {
       h('div', { class: 'checks' }, boxes.map(({ c, cb }) =>
         h('label', { class: 'chk' }, cb, h('span', {}, c.label, c.help ? h('small', {}, c.help) : null)))),
       f.help ? h('div', { class: 'help' }, f.help) : null);
-    return { wrap, input: boxes[0] ? boxes[0].cb : null, onChange: fn => listeners.push(fn),
+    return { wrap, input: boxes[0] ? boxes[0].cb : null, boxes, onChange: fn => listeners.push(fn),
       get: () => boxes.filter(b => b.cb.checked).map(b => b.c.value).join(',') };
   }
 
@@ -1296,6 +1402,7 @@ function pluginForm(kinds, current, extra, opts) {
       update();
     }
     holder.replaceChildren(d.help ? h('div', { class: 'help', style: 'margin:-4px 0 12px' }, d.help) : null, ...form.nodes);
+    if (d.discover && form.by.ztna) holder.append(ztnaPanel(form, kindSel.value, current, opts));
     if (form.by.pin_sha256) { // a certificate the user chose to trust: say so, and let them undo it
       const trust = h('div', { class: 'trustline' });
       const paint = () => {
@@ -1542,7 +1649,8 @@ function targetForm(t, presetCert, presetKind) {
   cert.value = t.cert_id || '';
   const en = fieldEl({ key: 'enabled', label: 'Enabled', type: 'bool' }, t.enabled);
   const pf = pluginForm(kinds, Object.assign({ id: isNew ? '' : t.id }, t),
-    h('div', {}, name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert), en.wrap), { vendors: true });
+    h('div', {}, name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert), en.wrap),
+    { vendors: true, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
   const testMsg = h('span', { class: 'testmsg' });
 
   // Runs the connection test. A device whose certificate cannot be verified is not

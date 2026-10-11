@@ -66,10 +66,13 @@ type Descriptor struct {
 	Hidden bool `json:"hidden,omitempty"`
 	// Manual types cannot be deployed to: the certificate is installed by hand on the device, and
 	// CertSmith checks what the device serves (and alerts when it is not the current certificate).
-	Manual bool    `json:"manual,omitempty"`
-	Label  string  `json:"label"`
-	Help   string  `json:"help,omitempty"`
-	Fields []Field `json:"fields"`
+	Manual bool `json:"manual,omitempty"`
+	// Discover is set when the plugin can look at the device and report the places it uses
+	// certificates (the target dialog offers a button for it).
+	Discover bool    `json:"discover,omitempty"`
+	Label    string  `json:"label"`
+	Help     string  `json:"help,omitempty"`
+	Fields   []Field `json:"fields"`
 	// Calls lists the API calls the plugin makes, in the order it makes them.
 	Calls []CallDoc `json:"calls,omitempty"`
 	// AutoVerify, when set, makes the UI (and engine) check host:port without the
@@ -118,6 +121,13 @@ func KeepOld(cfg map[string]string) int {
 		return n
 	}
 	return 2
+}
+
+// Discoverer is implemented by targets that can inspect the device and describe, read-only, the
+// places it holds a certificate that could be replaced (for a FortiGate: its ZTNA servers). The
+// result is JSON for the dialog to show; nothing on the device changes.
+type Discoverer interface {
+	Discover(ctx context.Context, cfg map[string]string) (any, error)
 }
 
 // Bundle is an issued certificate ready for deployment.

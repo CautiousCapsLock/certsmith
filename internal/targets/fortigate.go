@@ -37,6 +37,9 @@ type fortiGate struct{}
 type fgBinding struct {
 	path, mkey, field string
 	list              bool // the field is a list of {name: ...} entries rather than a string
+	// entry, for a list, is the certificate the administrator chose to replace: only that entry
+	// changes and the rest of the list is kept (see wantFor).
+	entry string
 }
 
 func (b fgBinding) String() string {
@@ -64,12 +67,12 @@ func one(b fgBinding) func(map[string]string) ([]fgBinding, error) {
 var fgCapabilities = []fgCapability{
 	{ID: "admin-gui", Label: "Admin GUI (HTTPS management)", last: true,
 		Help:     "The certificate shown when you browse to the FortiGate's web interface.",
-		bindings: one(fgBinding{"system/global", "", "admin-server-cert", false})},
+		bindings: one(fgBinding{"system/global", "", "admin-server-cert", false, ""})},
 	{ID: "ssl-vpn", Label: "SSL VPN portal",
 		Help:     "Not available on models and releases where SSL VPN was removed.",
-		bindings: one(fgBinding{"vpn.ssl/settings", "", "servercert", false})},
+		bindings: one(fgBinding{"vpn.ssl/settings", "", "servercert", false, ""})},
 	{ID: "auth-portal", Label: "Captive / authentication portal",
-		bindings: one(fgBinding{"user/setting", "", "auth-cert", false})},
+		bindings: one(fgBinding{"user/setting", "", "auth-cert", false, ""})},
 	{ID: "ipsec", Label: "IPsec VPN (IKE phase 1)",
 		Help: "Enter the phase 1 interface names below.",
 		bindings: func(cfg map[string]string) ([]fgBinding, error) {
@@ -79,7 +82,7 @@ var fgCapabilities = []fgCapability{
 			}
 			var out []fgBinding
 			for _, n := range names {
-				out = append(out, fgBinding{"vpn.ipsec/phase1-interface", n, "certificate", true})
+				out = append(out, fgBinding{"vpn.ipsec/phase1-interface", n, "certificate", true, ""})
 			}
 			return out, nil
 		}},
@@ -99,13 +102,13 @@ func customBindings(text string) ([]fgBinding, error) {
 				}
 			}
 		case strings.HasPrefix(line, "ipsec:"):
-			out = append(out, fgBinding{"vpn.ipsec/phase1-interface", strings.TrimPrefix(line, "ipsec:"), "certificate", true})
+			out = append(out, fgBinding{"vpn.ipsec/phase1-interface", strings.TrimPrefix(line, "ipsec:"), "certificate", true, ""})
 		default:
 			parts := strings.Split(line, ";")
 			if len(parts) < 3 || len(parts) > 4 || parts[0] == "" || parts[2] == "" {
 				return nil, fmt.Errorf("custom binding %q: want path;mkey;field[;list]", line)
 			}
-			out = append(out, fgBinding{parts[0], parts[1], parts[2], len(parts) == 4 && parts[3] == "list"})
+			out = append(out, fgBinding{path: parts[0], mkey: parts[1], field: parts[2], list: len(parts) == 4 && parts[3] == "list"})
 		}
 	}
 	return out, nil
@@ -135,6 +138,17 @@ func plan(cfg map[string]string) ([]plannedCap, error) {
 		}
 		out = append(out, plannedCap{c.ID, c.Label, c.last, bs})
 	}
+	zs, err := parseZTNA(cfg["ztna"])
+	if err != nil {
+		return nil, err
+	}
+	if len(zs) > 0 {
+		var bs []fgBinding
+		for _, z := range zs {
+			bs = append(bs, z.binding())
+		}
+		out = append(out, plannedCap{"ztna", "ZTNA servers", false, bs})
+	}
 	if cb, err := customBindings(cfg["bindings"]); err != nil {
 		return nil, err
 	} else if len(cb) > 0 {
@@ -157,12 +171,16 @@ func (fortiGate) Descriptor() plugin.Descriptor {
 		plugin.Field{Key: "token", Label: "REST API token", Type: "password", Required: true, Secret: true,
 			Help: "Create a REST API admin whose profile can read and write certificates and the objects ticked below, and restrict it to this server's address under Trusted Hosts."},
 		plugin.Field{Key: "uses", Label: "Use this certificate for", Type: "checks", Default: "admin-gui", Choices: choices},
+		// the ZTNA servers chosen for replacement; filled by the "Look for ZTNA servers" panel
+		plugin.Field{Key: "ztna", Type: "hidden"},
+		// the release the device last reported (set by the ZTNA panel), so the SSL VPN tick can be switched off at once
+		plugin.Field{Key: "fos_version", Type: "hidden"},
 		plugin.Field{Key: "ipsec_phase1", Label: "IPsec phase 1 names", Type: "text", ShowIf: "uses~ipsec",
 			Help: "Comma separated, as named under VPN > IPsec Tunnels."},
 		verifyField,
 		plugin.Field{Advanced: true, Key: "vdom", Label: "VDOM", Type: "text", Default: "root"},
 		plugin.Field{Advanced: true, Key: "cert_prefix", Label: "Certificate name prefix", Type: "text", Default: "certsmith", Required: true,
-			Help: "Certificates are imported as <prefix>-<yyyymmdd>-<serial4> (35 character FortiOS limit). Older ones sharing the prefix are pruned."},
+			Help: "Certificates are imported as <prefix>-<name>-<yyyymmdd>-<serial4>, where <name> is CertSmith's name for the certificate, shortened to fit FortiOS's 35 characters (the shorter the prefix and the name, the more of it shows). Older ones sharing the prefix are pruned."},
 		plugin.Field{Advanced: true, Key: "import_format", Label: "Import format", Type: "select", Options: []string{"pkcs12", "pem"}, Default: "pkcs12",
 			Help: "pkcs12 carries the intermediate chain; pem uploads the full chain as the certificate file. Switch if your FortiOS version rejects one."},
 		plugin.Field{Advanced: true, Key: "install_chain", Label: "Install the issuing CA certificates", Type: "bool", Default: "true",
@@ -174,12 +192,13 @@ func (fortiGate) Descriptor() plugin.Descriptor {
 		Kind:           "fortigate",
 		Vendor:         "Fortinet",
 		Label:          "FortiGate (FortiOS REST API)",
-		Help:           "Imports the certificate, applies it to each selected function with a separate API call (rolled back if any call fails), and removes unreferenced older copies.",
+		Help:           "Imports the certificate, applies it to each selected function and each ZTNA server chosen (a separate API call each, rolled back if any call fails), and removes unreferenced older copies.",
 		Fields:         append(fields, tlsFields...),
 		Calls:          fgCallDocs(),
 		AutoVerify:     true,
 		AutoVerifyWhen: "uses~admin-gui",
 		AutoVerifyPort: "443",
+		Discover:       true,
 	}
 }
 
@@ -201,14 +220,23 @@ func fgCallDocs() []plugin.CallDoc {
 		}
 	}
 	docs = append(docs,
+		plugin.CallDoc{Op: "test", Method: "GET", Path: "/api/v2/cmdb/firewall/vip", Purpose: "Lists the ZTNA virtual IPs (type access-proxy) and the certificate each uses, for the ZTNA section of this dialog.", When: "“Look for ZTNA servers” pressed"},
+		plugin.CallDoc{Op: "test", Method: "GET", Path: "/api/v2/cmdb/firewall/access-proxy-virtual-host", Purpose: "Lists the ZTNA virtual hosts and the certificate each uses.", When: "“Look for ZTNA servers” pressed"},
+		plugin.CallDoc{Op: "test", Method: "GET", Path: "/api/v2/cmdb/firewall/access-proxy", Purpose: "FortiOS 7.6 only: which ZTNA server each virtual IP and host belongs to, to label them.", When: "“Look for ZTNA servers” pressed, on 7.6"},
+	)
+	docs = append(docs,
 		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/local/<name>", Purpose: "Asks whether this exact certificate was already imported, so a retry does not import it twice."},
 		plugin.CallDoc{Op: "deploy", Method: "POST", Path: "/api/v2/monitor/vpn-certificate/local/import", Changes: true,
-			Purpose: "Imports the certificate and its private key (as a PKCS#12 bundle, or PEM if you chose that) under the name <prefix>-<date>-<serial>."},
+			Purpose: "Imports the certificate and its private key (as a PKCS#12 bundle, or PEM if you chose that) under the name <prefix>-<name>-<date>-<serial>."},
+		plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "/api/v2/cmdb/vpn.certificate/local/<name>", Changes: true,
+			Purpose: "Adds a note to the certificate saying what it is (CertSmith's name for it, its names and its expiry), so it can be told apart on the device.", When: "the certificate was just imported"},
 		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/ca", Purpose: "Lists the CA certificates the FortiGate already has.", When: "“Install the issuing CA certificates” is on"},
 		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/ca/<name>", Purpose: "Reads each CA that was added by a user, because the list above leaves out the certificates themselves; this is how an already installed CA is recognised.", When: "the device lists user-added CAs"},
 		plugin.CallDoc{Op: "deploy", Method: "POST", Path: "/api/v2/monitor/vpn-certificate/ca/import", Changes: true,
 			Purpose: "Installs the issuing CA (the intermediate, never the root) so the FortiGate sends the whole chain.", When: "the issuing CA is not there yet"},
 	)
+	docs = append(docs,
+		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/monitor/system/status", Purpose: "Reads the FortiOS version, so the SSL VPN setting is not sent to a release (7.6 and later) that has none.", When: "SSL VPN portal ticked"})
 	for _, c := range caps {
 		bs, _ := c.bindings(map[string]string{"ipsec_phase1": "<name>"})
 		for _, b := range bs {
@@ -216,6 +244,12 @@ func fgCallDocs() []plugin.CallDoc {
 				plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/" + fgPath(b), Purpose: "Reads the current " + b.field + " so it can be restored if a later step fails.", When: c.Label + " ticked"},
 				plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "/api/v2/cmdb/" + fgPath(b), Changes: true, Purpose: "Switches " + b.field + " to the new certificate.", When: c.Label + " ticked, and not already using it"})
 		}
+	}
+	// ZTNA servers the administrator chose (see fortigate_ztna.go). Only the chosen entry of a list changes.
+	for _, z := range []struct{ kind, path string }{{"VIP", "firewall/vip/<name>"}, {"virtual host", "firewall/access-proxy-virtual-host/<name>"}} {
+		docs = append(docs,
+			plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/" + z.path, Purpose: "Reads the certificate list of a ZTNA " + z.kind + " you chose, so only your chosen entry is replaced and the list can be restored if a later step fails.", When: "a ZTNA server was chosen"},
+			plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "/api/v2/cmdb/" + z.path, Changes: true, Purpose: "Replaces the chosen certificate entry of the ZTNA " + z.kind + " with the new certificate, keeping any other entries.", When: "a ZTNA server was chosen, and not already using the new certificate"})
 	}
 	docs = append(docs,
 		plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "(the places above)", Changes: true, Purpose: "If any switch fails, the earlier ones are put back to the values read before.", When: "a switch failed"},
@@ -482,6 +516,10 @@ func (fortiGate) Test(ctx context.Context, cfg map[string]string) (string, error
 	}
 	var parts, failed []string
 	for _, pc := range caps {
+		if pc.id == "ssl-vpn" && sslVPNRemoved(st.Version) {
+			parts = append(parts, "ssl-vpn n/a on "+st.Version+" (ignored)")
+			continue
+		}
 		ok := true
 		for _, b := range pc.bindings {
 			if _, err := c.readBinding(ctx, b); err != nil {
@@ -520,7 +558,7 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 	if prefix == "" {
 		prefix = "certsmith"
 	}
-	name := certName(prefix, b, 35)
+	name := fgCertName(prefix, b.Name, b, 35)
 
 	exists, err := c.certExists(ctx, name)
 	if err != nil {
@@ -530,6 +568,12 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 		if err := c.importCert(ctx, name, b, cfg["import_format"]); err != nil {
 			return "", fmt.Errorf("import certificate %s: %w", name, err)
 		}
+		// a note on the device saying what this certificate is (best effort: the name alone is cut to fit)
+		note := fmt.Sprintf("CertSmith: %s (%s), expires %s", b.Name, strings.Join(b.Domains, ", "), b.NotAfter.UTC().Format("2006-01-02"))
+		if len(note) > 120 {
+			note = note[:120]
+		}
+		_ = c.call(ctx, http.MethodPut, "/api/v2/cmdb/vpn.certificate/local/"+url.PathEscape(name), nil, map[string]string{"comments": note}, nil)
 	}
 
 	chainNote := ""
@@ -552,7 +596,24 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 		}
 	}
 	var report []string
+	// SSL VPN is gone from FortiOS 7.6: its setting does not exist there, so a stored tick is skipped
+	version := ""
 	for _, pc := range caps {
+		if pc.id == "ssl-vpn" {
+			var st struct {
+				Version string `json:"version"`
+			}
+			if err := c.call(ctx, http.MethodGet, "/api/v2/monitor/system/status", nil, nil, &st); err == nil {
+				version = st.Version
+			}
+			break
+		}
+	}
+	for _, pc := range caps {
+		if pc.id == "ssl-vpn" && sslVPNRemoved(version) {
+			report = append(report, "ssl-vpn skipped (not in FortiOS 7.6 and later)")
+			continue
+		}
 		changed := false
 		for _, bd := range pc.bindings {
 			old, err := c.readBinding(ctx, bd)
@@ -560,7 +621,11 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 				rollback()
 				return "", fmt.Errorf("%s: read %s: %w", pc.label, bd, err)
 			}
-			want := bd.valueFor(name)
+			want, err := bd.wantFor(old, name, prefix)
+			if err != nil {
+				rollback()
+				return "", fmt.Errorf("%s: %w (all changes rolled back)", pc.label, err)
+			}
 			if jsonEqual(old, want) {
 				continue
 			}
@@ -588,7 +653,13 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 				old = append(old, ce)
 			}
 		}
-		sort.Slice(old, func(i, j int) bool { return old[i].name > old[j].name }) // newest first
+		sort.Slice(old, func(i, j int) bool { // newest first, by the date and serial the name ends with
+			ki, kj := fgNameOrder(old[i].name), fgNameOrder(old[j].name)
+			if ki != kj {
+				return ki > kj
+			}
+			return old[i].name > old[j].name
+		})
 		for i, ce := range old {
 			if i < keep || ce.refs != 0 {
 				continue
