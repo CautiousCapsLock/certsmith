@@ -147,6 +147,31 @@ func TestChangingOnlyTheVerifyAddressesKeepsTheTargetDeployedAndArmed(t *testing
 	}
 }
 
+func TestOnlyTargetsThatNeverDeployCanBeSavedWithoutACertificate(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	_ = ws.St.Update(func(db *model.DB) error {
+		db.Certificates = append(db.Certificates, model.Certificate{ID: "c1", Name: "c", Domains: []string{"a.example"}, Enabled: true})
+		return nil
+	})
+	post := func(kind string, cfg map[string]string) (int, string) {
+		code, body, _ := call(t, c, "POST", srv.URL+"/api/targets", map[string]any{
+			"name": kind, "kind": kind, "cert_id": "", "enabled": true, "config": cfg}, false, nil)
+		return code, body
+	}
+	// a device whose certificate is installed by hand, and a plain watch, run fine with no certificate
+	if code, body := post("forticlientems", map[string]string{"host": "ems.example.com"}); code != 200 {
+		t.Errorf("FortiClient EMS without a certificate: %d %s", code, body)
+	}
+	if code, body := post("watch", map[string]string{"verify": "a.example:443"}); code != 200 {
+		t.Errorf("a watch without a certificate: %d %s", code, body)
+	}
+	// anything that deploys still needs one
+	if code, body := post("files", map[string]string{"dir": t.TempDir()}); code != 400 || !strings.Contains(body, "choose a certificate") {
+		t.Errorf("a deploying target without a certificate must be refused: %d %s", code, body)
+	}
+}
+
 func TestPauseAndResumeATarget(t *testing.T) {
 	srv, ws := newTestServer(t)
 	c := setupAndLogin(t, srv)

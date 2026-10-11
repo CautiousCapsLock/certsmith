@@ -282,9 +282,11 @@ function targetStatus(t, c) {
   if (t.kind === 'watch') return chip('monitoring');
   if (isManual(t.kind)) {
     const ps = t.probes || [];
-    if (!c || !c.serial) return chip('waiting for certificate', 'warn');
+    const watched = !t.cert_id; // no certificate chosen: only what the device serves is watched
+    if (!watched && (!c || !c.serial)) return chip('waiting for certificate', 'warn');
     if (!ps.length) return chip('waiting for the first check');
     if (ps.some(p => p.error)) return chipTitled('unreachable', 'bad', 'The device could not be reached on every checked port.');
+    if (watched) return chipTitled('monitoring', 'ok', 'No certificate is chosen, so CertSmith only watches what the device serves: expiry and an incomplete chain.');
     if (ps.every(p => p.match)) return chipTitled('installed', 'ok', 'The device is serving this certificate.');
     return chipTitled('import needed', 'warn', 'The device is serving a different certificate. Import the current one in the device console; CertSmith cannot do it for this device.');
   }

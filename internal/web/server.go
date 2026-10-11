@@ -1093,8 +1093,10 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "name is required")
 		return
 	}
-	if in.CertID == "" && in.Kind != "watch" {
-		fail(w, 400, "choose a certificate")
+	// only a target that never deploys can run without a certificate: a monitor-only one, or a device
+	// whose certificate is installed by hand (its endpoints are still checked for expiry and chain)
+	if in.CertID == "" && in.Kind != "watch" && !p.Descriptor().Manual {
+		fail(w, 400, "choose a certificate: only a monitor-only target, or a device whose certificate is installed by hand, can be saved without one")
 		return
 	}
 	cfg, err := p.Descriptor().Validate(in.Config)
