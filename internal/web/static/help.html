@@ -47,6 +47,7 @@
 </figure>
 
 <h2 id="quickstart">Quick start</h2>
+<p>The order matters, and CertSmith holds you to it: until a provider exists a certificate cannot be added, and until a certificate exists a target that receives one cannot be added. The <strong>Set up in this order</strong> checklist at the top of the Certificates, Targets and Certificate providers pages shows where you are, and goes away once all three steps are done.</p>
 <ol>
   <li><strong>Set the account email.</strong> Open <strong>Settings</strong> and enter an address under <em>Let's Encrypt (ACME)</em>. Leave the directory on <em>Production</em> for publicly trusted certificates. Use <em>Staging</em> for testing: it issues untrusted test certificates with relaxed limits.</li>
   <li><strong>Add a certificate provider.</strong> Open <strong>Certificate providers</strong>, select <strong>Add provider</strong>, keep <em>Let's Encrypt</em>, then choose the DNS provider (for example Cloudflare) and enter its API token. Select <strong>Test DNS challenge</strong> to verify the credentials before continuing.</li>

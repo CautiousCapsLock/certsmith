@@ -45,7 +45,7 @@ function toast(msg, bad, ms) {
   t.className = 'show' + (bad ? ' bad' : '');
   clearTimeout(toastTimer);
   if (ms === 0) return;
-  toastTimer = setTimeout(() => { t.className = ''; }, ms || (bad ? 6000 : 2800));
+  toastTimer = setTimeout(() => { t.className = ''; }, ms || (bad ? Math.min(20000, Math.max(6000, String(msg).length * 70)) : 2800));
 }
 
 // ---- state --------------------------------------------------------------------
@@ -647,7 +647,10 @@ function renderOverview() {
           certs.every(c => collapsedCerts.has(c.id)) ? 'Expand all' : 'Collapse all') : null,
         h('button', { id: 'probe-btn', class: 'btn', title: 'Connects to every target now and checks the certificate it is serving: the right one, still valid, chain complete. Changes nothing.',
           onclick: e => checkEndpoints(e.currentTarget) }, 'Check endpoints'),
-        h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate'))),
+        h('button', { class: 'btn primary', disabled: !setupState().canCert,
+          title: setupState().canCert ? '' : 'Add a certificate provider first: certificates are proven with its DNS credentials',
+          onclick: () => certForm(null) }, 'Add certificate'))),
+    ...(setupGuide() ? [setupGuide()] : []),
     // spread: the native append() would print the text "null" for an absent banner
     ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email))
          && !(certs.length && certs.every(c => c.source === 'import'))) // only imported certificates: nothing is issued
@@ -667,14 +670,7 @@ function renderOverview() {
       tile(targets.length, 'deployment targets', ''),
       tile(badTargets, 'targets with problems', badTargets ? 'bad' : 'ok')));
 
-  if (!certs.length) {
-    root.append(h('div', { class: 'card' }, h('div', { class: 'empty' },
-      h('h2', {}, 'Add your first certificate'),
-      h('p', {}, "Certificates are validated through DNS. Add a certificate provider first (Let's Encrypt with DNS credentials, or another CA such as ZeroSSL or Sectigo), then add a certificate, then the targets that should receive it."),
-      h('div', { class: 'row', style: 'justify-content:center' },
-        S.dns_providers.length ? null : h('button', { class: 'btn', onclick: () => providerForm(null) }, 'Add certificate provider'),
-        h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate')))));
-  } else {
+  if (certs.length) {
     certs.forEach(c => root.append(certCard(c)));
   }
   const watch = targets.filter(t => !t.cert_id);
@@ -683,6 +679,42 @@ function renderOverview() {
       h('div', { class: 'card' }, watch.map(t => targetRow(t, null))));
   }
   return root;
+}
+
+// The order things must be set up in: a certificate provider (where certificates come from and the DNS
+// credentials that prove the names), then a certificate, then the targets that receive it. Each step is
+// locked until the one before it exists, here and on the server.
+function setupState() {
+  const providers = (S.dns_providers || []).length, certs = (S.certificates || []).length;
+  const targets = (S.targets || []).filter(t => t.cert_id).length; // targets that receive a certificate
+  const selfSigned = (S.settings || {}).acme_directory === 'selfsigned'; // the built-in test CA proves no names
+  return { providers, certs, targets, canCert: providers > 0 || selfSigned, canTarget: certs > 0,
+    complete: (providers > 0 || certs > 0) && certs > 0 && targets > 0 };
+}
+
+// A numbered checklist (provider, certificate, target) shown while setup is incomplete. The step to do now
+// is highlighted, the later ones say what they wait for, and a locked step has no working button.
+function setupGuide() {
+  const st = setupState();
+  if (st.complete) return null;
+  const doneProvider = st.providers > 0 || st.certs > 0, doneCert = st.certs > 0, doneTarget = st.targets > 0;
+  const step = (n, title, text, done, locked, lockedText, btn) => h('div', { class: 'sgstep' + (done ? ' done' : locked ? ' locked' : ' now') },
+    h('div', { class: 'sghead' }, h('span', { class: 'sgno' }, done ? '✓' : String(n)), h('strong', {}, title)),
+    h('div', { class: 'meta' }, locked ? lockedText : text),
+    done ? null : btn);
+  const go = (label, fn, locked) => h('button', { class: 'btn small' + (locked ? '' : ' primary'), disabled: locked, onclick: fn }, label);
+  return h('div', { class: 'setupguide', role: 'region', 'aria-label': 'Set up in this order' },
+    h('div', { class: 'setuptitle' }, h('strong', {}, 'Set up in this order'),
+      h('span', { class: 'meta' }, ' Each step needs the one before it, so nothing can be added out of order.')),
+    h('div', { class: 'sgsteps' },
+      step(1, 'Certificate provider', "Where certificates come from: Let's Encrypt or another CA, with the DNS credentials that prove the names. Or import a certificate you already have.",
+        doneProvider, false, '', go('Add a provider', () => providerForm(null), false)),
+      step(2, 'Certificate', 'The names to issue (or the imported certificate), kept renewed by CertSmith.',
+        doneCert, !st.canCert, 'Locked: add a certificate provider first (step 1).', go('Add a certificate', () => certForm(null), !st.canCert)),
+      step(3, 'Target', 'The devices and services that receive the certificate: FortiGate, FortiManager, Proxmox and others.',
+        doneTarget, !st.canTarget, 'Locked: add a certificate first (step 2). A Monitor only target, which just watches an address, can be added now.',
+        h('div', { class: 'row' }, go('Add a target', () => targetForm(null), !st.canTarget),
+          !st.canTarget ? h('button', { class: 'btn small ghost', onclick: () => targetForm(null) }, 'Monitor an address') : null))));
 }
 
 function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n' }, n), h('div', { class: 'l' }, label)); }
@@ -751,6 +783,7 @@ function renderTargets() {
     h('div', { class: 'pagehead' },
       h('div', {}, h('h1', {}, 'Targets'), h('p', { class: 'sub', style: 'margin:0' }, 'Devices and services that receive certificates. Each target is updated automatically when its certificate is issued or renewed.')),
       h('button', { class: 'btn primary', onclick: () => targetForm(null) }, 'Add target')),
+    setupGuide(),
     rows.length ? h('div', {},
       h('div', { class: 'filterbar' }, search, count),
       h('table', { class: 'list' }, h('thead', {}, h('tr', {}, ...headCells, h('th', {}))), body))
@@ -775,6 +808,7 @@ function renderDNS() {
       h('div', {}, h('h1', {}, 'Certificate providers'), h('p', { class: 'sub', style: 'margin:0' },
         'A provider defines the certificate authority that issues certificates and the DNS credentials used to validate domain ownership. Each certificate is assigned one provider. Certificates issued elsewhere are imported here too.')),
       h('button', { class: 'btn primary', onclick: () => providerForm(null) }, 'Add provider')),
+    setupGuide(),
     section("Let's Encrypt", 'Certificates from Let\'s Encrypt, using the directory selected under Settings. Each provider holds the DNS credentials used for domain validation.',
       le.length ? table(['Name', 'DNS provider', 'Used by'], le.map(p => h('tr', {}, h('td', {}, p.name), h('td', {}, dnsLabel(p)), h('td', {}, usedBy(p)), edit(p))))
         : none("No Let's Encrypt providers configured.")),
@@ -1094,7 +1128,13 @@ function modal(title, body, buttons) {
 
 async function submit(btn, fn) {
   btn.disabled = true;
-  try { await fn(); } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+  const dlg = btn.closest ? btn.closest('.modal') : null;
+  if (dlg) dlg.querySelectorAll('.modalerr').forEach(n => n.remove());
+  try { await fn(); } catch (e) {
+    toast(e.message, true);
+    // a message that only flashes at the bottom is easy to miss: keep it in the dialog until the next try
+    if (dlg && dlg.isConnected) dlg.insertBefore(h('div', { class: 'err modalerr', role: 'alert' }, e.message), dlg.querySelector('.foot'));
+  } finally { btn.disabled = false; }
 }
 
 // DNS resolvers: one row each with an address and a port (53 unless changed), and a button to add another.
@@ -1441,6 +1481,7 @@ function pluginForm(kinds, current, extra, opts) {
   };
   const draw = () => {
     const d = kinds.find(k => k.kind === kindSel.value);
+    if (opts.onKind) opts.onKind(d); // the caller may depend on the type (which choices make sense)
     form = buildFields(d.fields, kindSel.value === current.kind ? current.config : null);
     if (d.auto_verify && form.by.verify) {
       // the address to check is already known: say so instead of making the user type it again
@@ -1513,6 +1554,16 @@ function pluginForm(kinds, current, extra, opts) {
   return { node: h('div', {}, ...top, extra, holder), read: () => ({ kind: kindSel.value, config: form.read() }),
     setValue: (k, v) => { form.by[k].input.value = v; if (form.paintTrust) form.paintTrust(); },
     getValue: k => (form.by[k] ? form.by[k].get() : ''),
+    // the label of the first required field (one that is showing) that has nothing in it, or ''
+    missing: () => {
+      const d = kinds.find(k => k.kind === kindSel.value);
+      for (const f of d.fields) {
+        if (!f.required || !form.by[f.key]) continue;
+        if (f.show_if && !form.cond(f.show_if)) continue;
+        if (!String(form.by[f.key].get()).trim()) return f.label;
+      }
+      return '';
+    },
     // after a passing test: let the type look at the device (a FortiGate's version and ZTNA servers)
     afterTest: async () => { if (form.ztna) await form.ztna.run(); } };
 }
@@ -1729,11 +1780,30 @@ function targetForm(t, presetCert, presetKind) {
   // Types marked hidden are not offered in the general list. The Settings page opens the dialog for
   // one of them directly (shown alone, no vendor or type to choose), and an existing target of that
   // type still opens normally.
-  const kinds = presetKind ? schema.targets.filter(d => d.kind === presetKind) : schema.targets.filter(d => !d.hidden || d.kind === t.kind);
-  // "none" only makes sense for a monitor-only target; a preset type always needs a certificate
-  const cert = h('select', {}, presetKind ? null : h('option', { value: '' }, '- none (monitor only) -'),
-    (S.certificates || []).map(c => h('option', { value: c.id }, c.name + ' (' + c.domains[0] + ')')));
-  cert.value = t.cert_id || '';
+  const noCerts = !(S.certificates || []).length;
+  let kinds = presetKind ? schema.targets.filter(d => d.kind === presetKind) : schema.targets.filter(d => !d.hidden || d.kind === t.kind);
+  // Before the first certificate exists only a target that needs none (monitor only, or a device whose
+  // certificate is installed by hand) can be added: the others receive a certificate, so they come after it.
+  if (isNew && !presetKind && noCerts) kinds = kinds.filter(d => d.kind === 'watch' || d.manual);
+  if (isNew && !presetKind && noCerts && kinds.length && !kinds.some(d => d.kind === t.kind)) t.kind = (kinds.find(d => d.kind === 'watch') || kinds[0]).kind;
+  // "none" is offered only where it works: a monitor-only target, or a device whose certificate is installed
+  // by hand. Any other type receives a certificate, so it needs one (the server refuses it otherwise).
+  const cert = h('select', {});
+  const certHelp = h('div', { class: 'help' });
+  const wantCert = t.cert_id || '';
+  let certOptional = false; // true while the chosen type can run with no certificate
+  const fillCerts = d => {
+    const keep = cert.options.length ? cert.value : wantCert;
+    const noneOK = !presetKind && !!d && (d.kind === 'watch' || !!d.manual);
+    certOptional = noneOK;
+    cert.replaceChildren(...(noneOK ? [h('option', { value: '' }, '- none (monitor only) -')] : []),
+      ...(S.certificates || []).map(c => h('option', { value: c.id }, c.name + ' (' + c.domains[0] + ')')));
+    const ids = [...cert.options].map(o => o.value);
+    cert.value = ids.includes(keep) ? keep : (ids.length ? ids[0] : '');
+    certHelp.textContent = !noneOK && !ids.length
+      ? 'There is no certificate yet. Add one on the Certificates page first, or choose the Monitor only type (under Generic) to just watch an address.'
+      : '';
+  };
   const en = fieldEl({ key: 'enabled', label: 'Enabled', type: 'bool' }, t.enabled);
   const testMsg = h('span', { class: 'testmsg' });
   // the test sits under the address and token (placed by pluginForm); runTest is declared below
@@ -1741,8 +1811,10 @@ function targetForm(t, presetCert, presetKind) {
     onclick: e => submit(e.target, runTest) }, 'Test connection');
   const testBlock = own ? null : h('div', { class: 'testblock' });
   const pf = pluginForm(kinds, Object.assign({ id: isNew ? '' : t.id }, t),
-    h('div', {}, name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert), en.wrap),
-    { vendors: true, testBlock, testBtn, testMsg, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
+    h('div', {}, isNew && !presetKind && noCerts ? h('div', { class: 'banner info', style: 'margin:0 0 12px' },
+        'There is no certificate yet, so only targets that need none are offered here. Add a provider, then a certificate, and the FortiGate, FortiManager, Proxmox and other targets that receive one become available.') : null,
+      name.wrap, h('div', { class: 'field' }, h('label', {}, 'Certificate'), cert, certHelp), en.wrap),
+    { vendors: true, testBlock, testBtn, testMsg, onKind: fillCerts, certDomains: () => (byId(S.certificates, cert.value) || {}).domains || [] });
 
   // Runs the connection test. A device whose certificate cannot be verified is not
   // just reported as failed: the user is shown it and asked whether to trust it, and
@@ -1789,8 +1861,13 @@ function targetForm(t, presetCert, presetKind) {
       callsDialog({ id: isNew ? '' : t.id, kind: pf.read().kind, name: name.get() }, isNew ? testCalls : []) }, 'API calls'),
     h('button', { class: 'btn', onclick: close }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: e => submit(e.target, async () => {
+      // what is missing is said here, in the dialog, before anything is tested or sent
+      if (!name.get().trim()) throw new Error('Name is required.');
+      const missing = pf.missing();
+      if (missing) throw new Error(missing + ' is required.');
+      if (!cert.value && !certOptional) throw new Error('Choose a certificate. A target that receives one needs it: add a provider, then a certificate, first (or use the Monitor only type to just watch an address).');
       // test first, so an untrusted certificate or a wrong token is caught here and not at the first deployment
-      if (!(await runTest()) && !confirm('The connection test did not pass. Save this target anyway?')) return;
+      if (!(await runTest()) && !confirm('The connection test did not pass:\n\n' + (testMsg.textContent || 'no answer').replace(/^✗ /, '') + '\n\nSave this target anyway?')) return;
       await api(isNew ? 'POST' : 'PUT', isNew ? '/api/targets' : '/api/targets/' + t.id,
         Object.assign({ name: name.get(), cert_id: cert.value, enabled: en.get() === 'true' }, pf.read()));
       close(); toast(isNew ? 'Added - deploying shortly' : 'Saved');

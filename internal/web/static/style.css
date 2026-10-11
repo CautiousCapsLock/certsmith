@@ -41,6 +41,20 @@ h2 { font-size: 15px; margin: 0; }
 .sub { color: var(--muted); margin: 0 0 18px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.between { justify-content: space-between; }
+/* the numbered checklist that says what to set up, in which order */
+.setupguide { border: 1px solid var(--accent); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; margin: 0 0 16px; }
+.setuptitle { margin-bottom: 10px; }
+.sgsteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.sgstep { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.sgstep .meta { flex: 1; }
+.sgstep.now { border-color: var(--accent); }
+.sgstep.done { opacity: .75; }
+.sgstep.locked { opacity: .6; }
+.sghead { display: flex; align-items: center; gap: 8px; }
+.sgno { width: 22px; height: 22px; border-radius: 50%; background: var(--idle-bg); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
+.sgstep.now .sgno { background: var(--accent); color: #fff; }
+.sgstep.done .sgno { background: var(--ok-bg); color: var(--ok); }
+@media (max-width: 760px) { .sgsteps { grid-template-columns: 1fr; } }
 /* the heading of a page: the title and its explanation on the left, the page's buttons on the right. The
    explanation wraps inside its own column however long it is, so the buttons never drop to a line of their own. */
 .pagehead { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
@@ -99,6 +113,7 @@ h2 { font-size: 15px; margin: 0; }
 .trow:first-child { border-top: 0; }
 .trow .nm { font-weight: 600; }
 .err { color: var(--bad); font-size: 12.5px; word-break: break-word; }
+.modalerr { margin: 12px 0 0; padding: 9px 12px; border: 1px solid var(--bad); border-radius: 8px; background: var(--bad-bg); font-size: 13px; }
 /* one checked address: the address on a line of its own, then what it serves on the left and its state at the
    right-hand end, so the states line up from one address to the next whatever the lengths */
 .probe { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; margin: 3px 0 9px; }

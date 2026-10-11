@@ -128,7 +128,7 @@ Options accept `--option value` or `--option=value`. If the host has a public IP
 1. Open the address printed by the installer. The browser reports the self-signed certificate as untrusted; the printed fingerprint can be compared with the one the browser shows.
 2. Create the first administrator account. There is no default password.
 3. Enter the contact email address for the certificate authority account.
-4. Add a certificate provider, add a certificate, then add the targets that should receive it.
+4. Follow the **Set up in this order** checklist at the top of the Certificates page: add a certificate provider, then a certificate, then the targets that should receive it. Each step is locked until the one before it exists, so nothing can be added out of order.
 
 The **Readme** button in the web interface opens the full user guide with screenshots.
 
