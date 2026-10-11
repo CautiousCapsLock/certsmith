@@ -223,6 +223,10 @@ details.adv > summary { cursor: pointer; color: var(--muted); padding: 8px 0; fo
 
 /* verbose ACME log, tucked away under each certificate */
 .logrow { padding: 0 16px 10px; }
+details.howto { margin-top: 6px; }
+details.howto > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; width: fit-content; }
+details.howto ol { margin: 6px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+details.howto li { margin: 4px 0; }
 details.verbose > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; width: fit-content; }
 pre.acmelog { max-height: 280px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0 0; font: 12px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .banner { padding: 10px 14px; border-radius: 10px; margin-bottom: 14px; }

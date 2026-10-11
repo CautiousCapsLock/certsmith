@@ -992,7 +992,10 @@ function fieldEl(f, value) {
   input.addEventListener('change', fire);
   const wrap = h('div', { class: 'field' + (t === 'bool' ? ' check' : '') },
     t === 'bool' ? h('label', {}, input, f.label) : [h('label', {}, f.label + (f.required ? ' *' : '')), t === 'password' ? revealWrap(input) : input],
-    f.help ? h('div', { class: 'help' }, f.help) : null);
+    f.help ? h('div', { class: 'help' }, f.help) : null,
+    // a collapsed how-to for values that have to be created on the device first
+    f.steps && f.steps.length ? h('details', { class: 'howto' }, h('summary', {}, f.steps_title || 'How to set this up'),
+      h('ol', {}, ...f.steps.map(x => h('li', {}, x)))) : null);
   return { wrap, input, onChange: fn => listeners.push(fn), get: () => t === 'bool' ? String(input.checked) : input.value };
 }
 
@@ -1428,7 +1431,7 @@ function pluginForm(kinds, current, extra, opts) {
         const row = h('div', { class: 'tokenrow' });
         pw.replaceWith(row);
         row.append(pw, btn);
-        wrap.append(msg);
+        row.after(msg); // the answer stays by the button, above any help or how-to text
         block.style.display = 'none';
       } else {
         // no token to sit beside (FortiClient EMS, files): its own line under the address

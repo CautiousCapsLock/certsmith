@@ -20,18 +20,29 @@ func init() { plugin.RegisterTarget(pveTarget{}) }
 type pveTarget struct{}
 
 func (pveTarget) Descriptor() plugin.Descriptor {
-	fields := connFields("8006", "e.g. pve1.lab.example")
+	fields := connFields("8006", "e.g. pve1.lab.example, as you browse to it")
 	fields = append(fields, []plugin.Field{
-		{Key: "node", Label: "Node name", Type: "text", Required: true},
+		{Key: "node", Label: "Node name", Type: "text", Required: true,
+			Help: "The node's name in Proxmox, not its address: the entry under Datacenter in the left-hand tree " +
+				"(the command hostname prints it on the host). Case matters and there is no domain part."},
 		{Key: "token", Label: "API token", Type: "password", Required: true, Secret: true,
-			Help: "Format USER@REALM!TOKENID=SECRET. Needs Sys.Modify on /nodes/<node>."},
+			Help:       "Format USER@REALM!TOKENID=SECRET. Needs the Sys.Modify privilege on /nodes/<node name>.",
+			StepsTitle: "How to create the token and give it permission",
+			Steps: []string{
+				"Datacenter → Permissions → API Tokens → Add. Pick a user (root@pam is fine), give the token an ID such as certsmith and leave Privilege Separation ticked. Copy the secret straight away, it is shown once, and paste it above as USER@REALM!TOKENID=SECRET.",
+				"Datacenter → Permissions → Add → API Token Permission. Path: /nodes/ and your node name (the list offers it). API Token: the one you just made. Role: Administrator. Leave Propagate ticked.",
+				"Administrator is the only built-in role that includes Sys.Modify, the privilege the certificate upload needs. PVEAdmin looks right but does not include it, so a token with that role passes the test and then fails to deploy.",
+				"If the token belongs to a user other than root@pam, give that user the same role on the same path too: a separated token can only hold what its user holds.",
+				"Optional hardening: make a role that holds only that privilege. Datacenter → Permissions → Roles → Create, name it CertSmith, tick only Sys.Modify, then choose CertSmith in step 2 instead of Administrator. The token can then replace the node's web certificate but cannot power the node off or open its console.",
+				"Test connection only proves the address and the token. The permission is first used when the certificate is deployed, and a missing one is reported then, before anything on the node is changed.",
+			}},
 		verifyField,
 	}...)
 	return plugin.Descriptor{
 		Kind:   "pve",
 		Vendor: "Proxmox",
 		Label:  "Proxmox VE (node web certificate)",
-		Help:   "Uploads the certificate and private key to the node and restarts the pveproxy service.",
+		Help:   "Uploads the certificate and private key to the node and restarts the pveproxy service. In a cluster, add each node as its own target.",
 		Fields: append(fields, tlsFields...),
 		Calls: []plugin.CallDoc{
 			{Op: "test", Method: "GET", Path: "/api2/json/version", Purpose: "Proves the address and API token work, and reads the Proxmox VE version."},

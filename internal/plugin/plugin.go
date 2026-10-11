@@ -44,6 +44,11 @@ type Field struct {
 	ShowIf string `json:"show_if,omitempty"`
 	// Advanced fields are tucked into a collapsed section.
 	Advanced bool `json:"advanced,omitempty"`
+	// Steps is a short numbered how-to shown under the field in a collapsed section, for values
+	// people have to create on the device first (an API token and the permission it needs).
+	// StepsTitle is the text of the link that opens it.
+	Steps      []string `json:"steps,omitempty"`
+	StepsTitle string   `json:"steps_title,omitempty"`
 }
 
 // CallDoc documents one API call a target plugin makes, for the "API calls" page in the web
