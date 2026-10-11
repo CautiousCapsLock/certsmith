@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -168,8 +167,6 @@ func (fortiGate) Descriptor() plugin.Descriptor {
 			Help: "pkcs12 carries the intermediate chain; pem uploads the full chain as the certificate file. Switch if your FortiOS version rejects one."},
 		plugin.Field{Advanced: true, Key: "install_chain", Label: "Install the issuing CA certificates", Type: "bool", Default: "true",
 			Help: "A FortiGate only sends the full certificate chain if the intermediate CA is in its own CA store. Leave this on unless you manage CA certificates yourself."},
-		plugin.Field{Advanced: true, Key: "keep_old", Label: "Old certificates to keep", Type: "number", Default: "2",
-			Help: "Unreferenced older certificates beyond this number are deleted."},
 		plugin.Field{Advanced: true, Key: "bindings", Label: "Custom bindings", Type: "textarea",
 			Help: "One per line: path;mkey;field[;list], e.g. vpn.ssl/settings;;servercert. For places not covered by the tick boxes."},
 	)
@@ -224,7 +221,7 @@ func fgCallDocs() []plugin.CallDoc {
 		plugin.CallDoc{Op: "deploy", Method: "PUT", Path: "(the places above)", Changes: true, Purpose: "If any switch fails, the earlier ones are put back to the values read before.", When: "a switch failed"},
 		plugin.CallDoc{Op: "deploy", Method: "GET", Path: "/api/v2/cmdb/vpn.certificate/local?with_meta=1", Purpose: "Lists CertSmith's older certificates with how many things still use each."},
 		plugin.CallDoc{Op: "deploy", Method: "DELETE", Path: "/api/v2/cmdb/vpn.certificate/local/<old name>", Changes: true,
-			Purpose: "Removes old CertSmith certificates beyond the number to keep. Only ones nothing uses, and only names that start with your prefix.", When: "there are more old copies than \"Old certificates to keep\""},
+			Purpose: "Removes old CertSmith certificates beyond the number to keep (Settings, Certificates to keep on each device). Only ones nothing uses, and only names that start with your prefix.", When: "there are more old copies than \"Certificates to keep on each device\" (Settings) allows"},
 	)
 	return docs
 }
@@ -583,10 +580,7 @@ func (f fortiGate) Deploy(ctx context.Context, cfg map[string]string, b *plugin.
 
 	// prune old copies that nothing references
 	deleted := 0
-	keep := 2
-	if n, err := strconv.Atoi(cfg["keep_old"]); err == nil && n >= 0 {
-		keep = n
-	}
+	keep := plugin.KeepOld(cfg)
 	if certs, err := c.listCerts(ctx, prefix); err == nil {
 		var old []fgCertRef
 		for _, ce := range certs {

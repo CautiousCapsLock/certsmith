@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +102,19 @@ func (d Descriptor) Validate(cfg map[string]string) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// KeepOld is how many older CertSmith certificates a device-cleaning plugin leaves on the device after
+// a deployment. The engine passes the Settings value as "_keep_total" (the certificates to keep, the
+// one just deployed included). Without it (an older caller) the target's own "keep_old", then 2.
+func KeepOld(cfg map[string]string) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(cfg["_keep_total"])); err == nil && n >= 1 {
+		return n - 1
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(cfg["keep_old"])); err == nil && n >= 0 {
+		return n
+	}
+	return 2
 }
 
 // Bundle is an issued certificate ready for deployment.

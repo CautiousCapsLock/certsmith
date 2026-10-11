@@ -15,7 +15,6 @@ CertSmith automates the lifecycle of TLS certificates. It obtains certificates f
 - [Data and backup](#data-and-backup)
 - [Security](#security)
 - [Building from source](#building-from-source)
-- [Releases](#releases)
 - [AI-assisted development](#ai-assisted-development)
 - [Licence](#licence)
 
@@ -208,16 +207,6 @@ To run without installing: `go run ./cmd/certsmith -data ./data -listen 127.0.0.
 | `deploy/` | systemd unit and the installer packaged with each release. |
 | `docs/` | [Command-line reference](docs/REFERENCE.md), the [dependency policy](docs/DEPENDENCIES.md), and plans for the [installer and appliance](docs/APPLIANCE.md), [target plugins](docs/PLUGINS.md) and [DNS-PERSIST-01](docs/DNS-PERSIST.md). |
 | `scripts/` | Repository checks, the installer tests, `scripts/update-deps.sh` (dependency updates) and `scripts/notices`, which generates the third-party licence notices. |
-
-## Releases
-
-A release is published by pushing a version tag:
-
-```sh
-git tag v0.12.0 && git push origin v0.12.0
-```
-
-The release workflow runs the tests, builds static `linux/amd64` and `linux/arm64` binaries, and attaches one archive per architecture together with `SHA256SUMS`.
 
 ## AI-assisted development
 

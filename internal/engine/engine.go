@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -692,6 +693,7 @@ func (e *Engine) deploy(ctx context.Context, id string) error {
 	if t.DeployedSHA256 != "" {
 		cfg["_trusted_sha256"] = t.DeployedSHA256 // the certificate we installed last time is the one the device now serves
 	}
+	cfg["_keep_total"] = strconv.Itoa(model.KeepOnDeviceOrDefault(e.St.Snapshot().Settings.KeepOnDevice))
 	b, err := acme.Load(e.DataDir, c.ID, c.Name, c.Domains)
 	if err != nil {
 		return fail(fmt.Errorf("load certificate: %w", err))

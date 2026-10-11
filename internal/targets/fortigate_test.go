@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -255,5 +256,41 @@ func TestFortiGateTest(t *testing.T) {
 	msg, err := fortiGate{}.Test(context.Background(), fgCfg(f))
 	if err != nil || !strings.Contains(msg, "v7.6.1") {
 		t.Fatalf("msg=%q err=%v", msg, err)
+	}
+}
+
+// The number of certificates kept on a device is the Settings value (passed by the engine as
+// "_keep_total"), the certificate just deployed included.
+func TestFortiGateKeepsTheNumberOfCertificatesSetInSettings(t *testing.T) {
+	for _, tc := range []struct {
+		keepTotal string
+		wantLeft  []string // old certificates that must remain
+	}{
+		{"3", []string{"certsmith-20200505-eeee", "certsmith-20200404-dddd"}}, // the new one plus the two newest old ones
+		{"1", nil}, // only the one in use
+		{"5", []string{"certsmith-20200505-eeee", "certsmith-20200404-dddd", "certsmith-20200303-cccc", "certsmith-20200202-bbbb"}},
+	} {
+		f := newFakeFGT(t)
+		for _, n := range []string{"certsmith-20200101-aaaa", "certsmith-20200202-bbbb", "certsmith-20200303-cccc", "certsmith-20200404-dddd", "certsmith-20200505-eeee"} {
+			f.certs[n] = 0
+		}
+		cfg := fgCfg(f)
+		delete(cfg, "keep_old") // an old per-target value must not matter once Settings decides
+		cfg["keep_old"] = "0"
+		cfg["_keep_total"] = tc.keepTotal
+		if _, err := (fortiGate{}).Deploy(context.Background(), cfg, testBundle(t)); err != nil {
+			t.Fatal(err)
+		}
+		var left []string
+		for n := range f.certs {
+			if strings.HasPrefix(n, "certsmith-2020") {
+				left = append(left, n)
+			}
+		}
+		sort.Strings(left)
+		sort.Strings(tc.wantLeft)
+		if strings.Join(left, ",") != strings.Join(tc.wantLeft, ",") {
+			t.Errorf("keep %s: old certificates left = %v, want %v", tc.keepTotal, left, tc.wantLeft)
+		}
 	}
 }

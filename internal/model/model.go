@@ -21,12 +21,15 @@ type SMTP struct {
 }
 
 type Settings struct {
-	ACMEDirectory   string   `json:"acme_directory"` // production | staging | selfsigned | https://custom/directory
-	ACMEEmail       string   `json:"acme_email"`
-	RenewBeforeDays int      `json:"renew_before_days"`
-	WarnDays        int      `json:"warn_days"`
-	ProbeMinutes    int      `json:"probe_minutes"`
-	DNSResolvers    []string `json:"dns_resolvers"` // e.g. 1.1.1.1:53 for propagation checks
+	ACMEDirectory   string `json:"acme_directory"` // production | staging | selfsigned | https://custom/directory
+	ACMEEmail       string `json:"acme_email"`
+	RenewBeforeDays int    `json:"renew_before_days"`
+	// KeepOnDevice is how many CertSmith certificates a device that keeps old ones holds after a
+	// deployment, the one in use included. 0 means the default of 3.
+	KeepOnDevice int      `json:"keep_on_device"`
+	WarnDays     int      `json:"warn_days"`
+	ProbeMinutes int      `json:"probe_minutes"`
+	DNSResolvers []string `json:"dns_resolvers"` // e.g. 1.1.1.1:53 for propagation checks
 	// DNSCheck is how CertSmith decides the DNS challenge record is published: "check" asks the zone's
 	// nameservers; "wait" simply waits DNSWaitSeconds; "auto" (default) asks, unless the network
 	// intercepts DNS, where the answers cannot be trusted and it waits instead.
@@ -255,4 +258,16 @@ type DB struct {
 	Events       []Event              `json:"events"`
 	Audit        []AuditEntry         `json:"audit"`
 	Alerts       map[string]time.Time `json:"alerts"` // active alert key -> last sent
+}
+
+// DefaultKeepOnDevice is how many CertSmith certificates a device keeps by default: the one in use and
+// the two before it, so a deployment can be rolled back by choosing the previous one on the device.
+const DefaultKeepOnDevice = 3
+
+// KeepOnDeviceOrDefault is the setting, or the default when it has never been set.
+func KeepOnDeviceOrDefault(n int) int {
+	if n < 1 {
+		return DefaultKeepOnDevice
+	}
+	return n
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -688,5 +689,28 @@ func TestARedeployDoesNotAddTheSameCAAgainOnFortiManager(t *testing.T) {
 			names = append(names, c["name"])
 		}
 		t.Fatalf("after three deployments the CA store has %d entries: %v", len(f.cas), names)
+	}
+}
+
+func TestFortiAnalyzerKeepsTheNumberOfCertificatesSetInSettings(t *testing.T) {
+	b, _ := realisticBundle(t)
+	old := map[string]map[string]any{}
+	for _, n := range []string{"certsmith-20200101-aaaa", "certsmith-20200202-bbbb", "certsmith-20200303-cccc", "certsmith-20200404-dddd"} {
+		old[n] = map[string]any{"name": n}
+	}
+	f := &fakeFAZ{certs: old, global: map[string]any{"admin_server_cert": "server.crt"}}
+	p, cfg := fazWith(t, f, map[string]string{"_keep_total": "3", "keep_old": "0"})
+	if _, err := p.Deploy(context.Background(), cfg, b); err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for n := range f.certs {
+		if strings.HasPrefix(n, "certsmith-2020") {
+			left = append(left, n)
+		}
+	}
+	sort.Strings(left)
+	if got := strings.Join(left, ","); got != "certsmith-20200303-cccc,certsmith-20200404-dddd" {
+		t.Errorf("old certificates left = %s, want the two newest (3 in total with the new one)", got)
 	}
 }

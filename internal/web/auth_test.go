@@ -689,3 +689,26 @@ func TestTrustedProxiesAreValidatedAndNormalisedWhenSaved(t *testing.T) {
 		t.Errorf("a host name must be refused: %d %s", code, body)
 	}
 }
+
+func TestCertificatesToKeepOnADeviceDefaultsToThreeAndIsBounded(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	code, body, _ := call(t, c, "GET", srv.URL+"/api/state", nil, false, nil)
+	if code != 200 {
+		t.Fatal(body)
+	}
+	var st struct {
+		DB map[string]any `json:"db"`
+	}
+	_ = json.Unmarshal([]byte(body), &st)
+	set, _ := st.DB["settings"].(map[string]any)
+	for in, want := range map[int]int{0: 3, -4: 3, 1: 1, 5: 5, 99: 20} {
+		set["keep_on_device"] = in
+		if code, body, _ := call(t, c, "PUT", srv.URL+"/api/settings", set, false, nil); code != 200 {
+			t.Fatalf("save %d: %d %s", in, code, body)
+		}
+		if got := ws.St.Snapshot().Settings.KeepOnDevice; got != want {
+			t.Errorf("saved %d -> %d, want %d", in, got, want)
+		}
+	}
+}

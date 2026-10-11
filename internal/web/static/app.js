@@ -1564,6 +1564,8 @@ function renderSettings() {
   const renew = F('renew_before_days', 'Renew when fewer than N days remain', 'number', s.renew_before_days);
   const warn = F('warn_days', 'Alert when fewer than N days remain', 'number', s.warn_days);
   const probe = F('probe_minutes', 'Check live endpoints every N minutes', 'number', s.probe_minutes);
+  const keepDev = F('keep_on_device', 'Certificates to keep on each device', 'number', s.keep_on_device || 3,
+    { help: 'After a deployment to a FortiGate, FortiManager or FortiAnalyzer, this many CertSmith certificates stay on the device: the one in use and the most recent older ones, so a previous certificate can be chosen again there if needed. Older ones that nothing uses are removed. Minimum 1.' });
   const resolvers = resolverRows(s.dns_resolvers || []);
   const resField = h('div', { class: 'field' }, h('label', {}, 'DNS resolvers'), resolvers.node,
     h('div', { class: 'help' }, "Optional. Resolvers used to locate the zone's authoritative nameservers. If empty, the server's own resolver is used. Add a second entry as a fallback."));
@@ -1624,7 +1626,7 @@ function renderSettings() {
 
   const collect = () => ({
     acme_directory: dir.get(), acme_email: email.get(), renew_before_days: +renew.get() || 30, warn_days: +warn.get() || 14,
-    probe_minutes: +probe.get() || 15, dns_resolvers: resolvers.get(), dns_check: dnsCheck.get(), dns_wait_seconds: +dnsWait.get() || 25,
+    probe_minutes: +probe.get() || 15, keep_on_device: +keepDev.get() || 3, dns_resolvers: resolvers.get(), dns_check: dnsCheck.get(), dns_wait_seconds: +dnsWait.get() || 25,
     notify_success: !!s.notify_success, webhook_url: hook.get().trim(), update_check_disabled: updChk.get() !== 'true',
     trusted_proxies: proxies.get().split(/[\s,]+/).filter(Boolean),
     alert_routing: { email: alertTypes.filter(t => alertBoxes.email[t.id].checked).map(t => t.id), webhook: alertTypes.filter(t => alertBoxes.webhook[t.id].checked).map(t => t.id) },
@@ -1796,7 +1798,7 @@ function renderSettings() {
       allBtn),
     group('issuing', 'Issuing and renewal', "Let's Encrypt, DNS validation, renewal and monitoring",
       two([card("Let's Encrypt (ACME)", 'Applies to every Let\'s Encrypt provider. Other certificate authorities are configured under Certificate providers.', dir.wrap, email.wrap),
-           card('Renewal & monitoring', 'Renewal threshold, expiry alert threshold and the interval for checking live endpoints.', renew.wrap, warn.wrap, probe.wrap)],
+           card('Renewal & monitoring', 'Renewal threshold, expiry alert threshold, the interval for checking live endpoints, and how many certificates are kept on each device.', renew.wrap, warn.wrap, probe.wrap, keepDev.wrap)],
           [card('DNS validation', 'How CertSmith confirms that the DNS challenge record is published. Applies to every certificate provider.', resField, dnsCheck.wrap, dnsWait.wrap)])),
     group('alerts', 'Alerts', 'Email, webhook, and which events are sent where',
       two([card('Email alerts', 'Alerts sent by email when a certificate is close to expiry, issuing or deployment fails, or a device serves an unexpected certificate.',

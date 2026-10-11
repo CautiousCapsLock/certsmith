@@ -556,6 +556,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	in.DNSWaitSeconds = clamp(in.DNSWaitSeconds, 5, 300)
 	in.RenewBeforeDays = clamp(in.RenewBeforeDays, 1, 60)
+	in.KeepOnDevice = clamp(model.KeepOnDeviceOrDefault(in.KeepOnDevice), 1, 20)
 	in.WarnDays = clamp(in.WarnDays, 1, 90)
 	in.ProbeMinutes = clamp(in.ProbeMinutes, 1, 1440)
 	in.ACMEEmail = strings.TrimSpace(in.ACMEEmail)

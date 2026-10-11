@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -49,7 +48,6 @@ func (f fortiMgr) Descriptor() plugin.Descriptor {
 			Help: "The setting that names the certificate. Some releases spell it with a hyphen; CertSmith tries that spelling too."},
 		{Advanced: true, Key: "install_chain", Label: "Install the issuing CA certificates", Type: "bool", Default: "true",
 			Help: "The device only sends the full chain if the intermediate CA is in its own CA store. Leave this on unless you manage CA certificates yourself."},
-		{Advanced: true, Key: "keep_old", Label: "Old certificates to keep", Type: "number", Default: "2"},
 	}...)
 	product := "FortiManager"
 	if f.kind == "fortianalyzer" {
@@ -76,7 +74,7 @@ func (f fortiMgr) Descriptor() plugin.Descriptor {
 			{Op: "deploy", Method: "set", Path: fmgBindPath, Changes: true, Purpose: "Makes the new certificate the one the web admin interface presents. The web service restarts as this takes effect, so the connection is often cut; CertSmith repeats the request until the device answers."},
 			{Op: "deploy", Method: "set", Path: fmgBindPath, Changes: true, Purpose: "Puts the previous certificate back.", When: "the switch failed"},
 			{Op: "deploy", Method: "get", Path: fmgCertPath, Purpose: "Lists CertSmith's older certificates (names starting with your prefix)."},
-			{Op: "deploy", Method: "delete", Path: fmgCertPath + "/<old name>", Changes: true, Purpose: "Removes older CertSmith certificates beyond the number to keep.", When: "there are more than \u201cOld certificates to keep\u201d"},
+			{Op: "deploy", Method: "delete", Path: fmgCertPath + "/<old name>", Changes: true, Purpose: "Removes older CertSmith certificates beyond the number to keep (Settings, Certificates to keep on each device).", When: "there are more than that number"},
 		},
 		// the certificate is the one served by the management GUI
 		AutoVerify: true, AutoVerifyPort: "443",
@@ -432,10 +430,7 @@ func (f fortiMgr) Deploy(ctx context.Context, cfg map[string]string, b *plugin.B
 	}
 
 	deleted := 0
-	keep := 2
-	if n, err := strconv.Atoi(cfg["keep_old"]); err == nil && n >= 0 {
-		keep = n
-	}
+	keep := plugin.KeepOld(cfg)
 	if d, err := c.call(ctx, "get", certPath, nil); err == nil {
 		var rows []map[string]any
 		if json.Unmarshal(d, &rows) == nil {
