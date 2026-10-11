@@ -30,7 +30,7 @@ The script downloads the latest release for the host architecture, verifies its 
 
 Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`, and the script itself uses `wget` when it is present and `curl` otherwise. Where `curl` is the only tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first: `apt-get update && apt-get install -y wget`.
 
-The commands read from GitHub without credentials, so they need a public repository. If a command returns at once and prints nothing, the download failed (GitHub answers 404 for a private repository): run `wget -nv -O-` with the same address on its own to see the error. For a private repository, copy the release archive to the host and install it by hand (see [Installation](#installation)).
+The commands read from GitHub without credentials. If a command returns at once and prints nothing, the download failed: run `wget -nv -O-` with the same address on its own to see the error. A host that cannot reach GitHub can have the release archive copied to it and installed by hand (see [Installation](#installation)).
 
 Installer options follow the script, after a placeholder argument:
 
@@ -51,7 +51,7 @@ sudo sh get.sh
 | `CERTSMITH_VERSION` | Install a specific release, for example `v0.12.0`, instead of the latest. |
 | `CERTSMITH_REPO` | Install from another repository, as `owner/name`. |
 
-The checksum is published with the release, so it detects a damaged or incomplete download but does not authenticate the publisher. Review the scripts before running them as root. See [Installation](#installation) for the manual procedure and every option, and [docs/REFERENCE.md](docs/REFERENCE.md) for the complete reference.
+The checksum is published with the release, so it detects a damaged or incomplete download but does not authenticate the publisher. Each release archive also carries a signed build provenance attestation, which proves it was built from this repository by its release workflow (see [Verifying a release](SECURITY.md#verifying-a-release)). Review the scripts before running them as root. See [Installation](#installation) for the manual procedure and every option, and [docs/REFERENCE.md](docs/REFERENCE.md) for the complete reference.
 
 ## Features
 
@@ -69,7 +69,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 
 ### Status
 
-CertSmith is pre-1.0. The FortiGate (FortiOS 7.6 and 8.0) and the FortiManager and FortiAnalyzer (7.4) targets have been run against real devices. External Account Binding has been verified against a live certificate authority, ZeroSSL; the other External Account Binding authorities (Sectigo, Google Trust Services and custom directories) are tested against a mock authority only. The other targets are covered by automated tests.
+CertSmith is pre-1.0. The FortiGate (FortiOS 7.6 and 8.0), FortiManager and FortiAnalyzer (7.4) and Proxmox VE targets have been run against real devices, as has Let's Encrypt issuance with a Cloudflare DNS zone and the import of a certificate from a private CA. ZTNA server certificates have been exercised on FortiOS 8.0 only: the 7.6 object model comes from Fortinet's API specification and automated tests. External Account Binding has been verified against a live certificate authority, ZeroSSL; the other External Account Binding authorities (Sectigo, Google Trust Services and custom directories) are tested against a mock authority only. The other targets are covered by automated tests.
 
 ## Requirements
 
@@ -179,12 +179,15 @@ All state is in `/var/lib/certsmith`. Back up the whole directory and store the 
 
 ## Security
 
-- Stored credentials are encrypted with AES-256-GCM. The key is generated on first start and is unique to each installation.
-- There are no default credentials. Failed sign-ins are rate-limited per address and per user.
+- Stored credentials are encrypted with AES-256-GCM. The key is generated on first start and is unique to each installation. It is kept beside the data (or in `CERTSMITH_MASTER_KEY`), so it protects a copy of the database, not a host that is already compromised.
+- There are no default credentials. Failed sign-ins are rate-limited per address and per user. Passwords are stored as bcrypt hashes.
+- Sessions use a signed, HttpOnly, SameSite=Strict cookie, expire after 12 hours, and end at sign-out and when the password changes. Every state-changing request needs a custom header, so a page on another site cannot make one. Downloading a private key, and changing users or passwords, ask for the signed-in user's own password again.
+- The web interface sends a restrictive Content-Security-Policy and renders everything as text; the service runs as an unprivileged user under a systemd unit that removes most of what a process could otherwise do.
 - Certificates, private keys, tokens and request bodies are never written to the API call log. An imported certificate's private key is stored encrypted like every other credential, is never returned to the browser, and the PKCS#12 password is not kept.
 - Device API accounts used by CertSmith should be restricted to the CertSmith server's address (for example Trusted Hosts on a FortiGate). Update that restriction before changing the server's address.
 - Report a suspected vulnerability through GitHub's private vulnerability reporting, not in a public issue. See [SECURITY.md](SECURITY.md).
 - The only outbound request that is not to a certificate authority, a DNS provider or a managed device is the daily check for a newer release. It reads one document from `api.github.com`, sends nothing about the installation, and can be switched off in Settings.
+- Anyone who can open the web interface of a new installation before the first administrator is created can create it: finish the setup wizard first, and restrict the address with `--allow-from`. All users are administrators; there are no roles.
 - The licences of the bundled third-party software are in [THIRD_PARTY_NOTICES.txt](internal/web/static/THIRD_PARTY_NOTICES.txt), which every release archive and the web interface also carry.
 
 ## Building from source
@@ -221,4 +224,6 @@ The maintainer directs the work and tests it against real equipment, as describe
 
 ## Licence
 
-A licence has not yet been chosen. Until a licence file is added, all rights are reserved.
+CertSmith is licensed under the [Apache License, Version 2.0](LICENSE). The software it bundles is under its own licences, listed in [THIRD_PARTY_NOTICES.txt](internal/web/static/THIRD_PARTY_NOTICES.txt).
+
+The software is provided as it is, without warranty of any kind. It holds private keys and administrative credentials: read the [AI-assisted development](#ai-assisted-development) section, and test before relying on it.
