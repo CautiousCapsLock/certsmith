@@ -1256,8 +1256,40 @@ func (s *Server) targetCalls(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"calls": calls})
 }
 
+// probe checks every enabled target's endpoints now and answers when it has finished, with how many
+// endpoints were checked and how many need attention, so the page can say so. It runs on its own
+// context: a reader who navigates away does not leave the results half written.
 func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
-	go s.Eng.ProbeAll(context.Background())
-	w.WriteHeader(http.StatusAccepted)
-	writeJSON(w, map[string]bool{"started": true})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	s.Eng.ProbeAll(ctx)
+	var sum probeSummary
+	s.St.View(func(db *model.DB) { sum = summariseProbes(db.Targets) })
+	writeJSON(w, sum)
+}
+
+// probeSummary is the outcome of an endpoint check.
+type probeSummary struct {
+	Targets  int `json:"targets"`  // enabled targets that have endpoints
+	Checked  int `json:"checked"`  // endpoints with a result
+	Problems int `json:"problems"` // endpoints that could not be reached, or serve the wrong certificate
+}
+
+// summariseProbes counts the latest results the way the page marks them: an endpoint is a problem when
+// it gave an error, or when it serves a different certificate than the one deployed to it.
+func summariseProbes(targets []model.Target) probeSummary {
+	var sum probeSummary
+	for _, t := range targets {
+		if !t.Enabled || len(t.Probes) == 0 {
+			continue
+		}
+		sum.Targets++
+		for _, p := range t.Probes {
+			sum.Checked++
+			if p.Error != "" || (!p.Match && t.CertID != "") {
+				sum.Problems++
+			}
+		}
+	}
+	return sum
 }

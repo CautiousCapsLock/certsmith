@@ -38,12 +38,14 @@ async function api(method, path, body) {
 }
 
 let toastTimer;
-function toast(msg, bad) {
+// ms is how long it stays; 0 keeps it until the next message replaces it (for work in progress).
+function toast(msg, bad, ms) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'show' + (bad ? ' bad' : '');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = ''; }, bad ? 6000 : 2800);
+  if (ms === 0) return;
+  toastTimer = setTimeout(() => { t.className = ''; }, ms || (bad ? 6000 : 2800));
 }
 
 // ---- state --------------------------------------------------------------------
@@ -542,7 +544,7 @@ function renderOverview() {
         certs.length > 1 ? h('button', { class: 'btn ghost', onclick: () => setCollapsed(certs.map(c => c.id), !certs.every(c => collapsedCerts.has(c.id))) },
           certs.every(c => collapsedCerts.has(c.id)) ? 'Expand all' : 'Collapse all') : null,
         h('button', { id: 'probe-btn', class: 'btn', title: 'Connects to every target now and checks the certificate it is serving: the right one, still valid, chain complete. Changes nothing.',
-          onclick: () => act('POST', '/api/probe', 'Checking endpoints…') }, 'Check endpoints'),
+          onclick: e => checkEndpoints(e.currentTarget) }, 'Check endpoints'),
         h('button', { class: 'btn primary', onclick: () => certForm(null) }, 'Add certificate'))),
     // spread: the native append() would print the text "null" for an absent banner
     ...((!S.settings.acme_email && S.settings.acme_directory !== 'selfsigned' && (!S.dns_providers.length || S.dns_providers.some(p => !isEAB(p) || !p.email))
@@ -582,6 +584,20 @@ function renderOverview() {
 }
 
 function tile(n, label, cls) { return h('div', { class: 'tile ' + cls }, h('div', { class: 'n' }, n), h('div', { class: 'l' }, label)); }
+
+// Checks every endpoint now and says at the bottom of the screen when it has finished, and how it went.
+async function checkEndpoints(btn) {
+  btn.disabled = true;
+  toast('Checking endpoints…', false, 0);
+  try {
+    const r = await api('POST', '/api/probe');
+    await refresh();
+    const n = r.checked || 0, plural = n === 1 ? 'endpoint' : 'endpoints';
+    if (!n) toast('Endpoint check finished: no target has an address to check.', false, 5000);
+    else if (!r.problems) toast(`Endpoint check finished: ${n} ${plural} checked, all serving the expected certificate.`, false, 5000);
+    else toast(`Endpoint check finished: ${r.problems} of ${n} ${plural} need attention.`, true, 8000);
+  } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+}
 
 async function act(method, path, okMsg) {
   try { await api(method, path); toast(okMsg); await refresh(); setTimeout(refresh, 800); }
