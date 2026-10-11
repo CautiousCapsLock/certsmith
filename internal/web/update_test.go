@@ -18,6 +18,10 @@ import (
 func releaseHost(t *testing.T, tag string, hits *int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/releases") { // the list of releases, asked for after an update is found
+			http.NotFound(w, r) // the notes then come from the latest release itself
+			return
+		}
 		atomic.AddInt32(hits, 1)
 		_, _ = w.Write([]byte(`{"tag_name":"` + tag + `","html_url":"https://github.com/owner/name/releases/tag/` + tag + `"}`))
 	}))

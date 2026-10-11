@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("POST /api/update/check", s.checkUpdate)
+	mux.HandleFunc("GET /api/release-notes", s.releaseNotes)
 	mux.HandleFunc("POST /api/ui-cert/regenerate", s.regenerateUICert)
 	mux.HandleFunc("GET /api/schema", s.schema)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
@@ -446,6 +447,18 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		out["update"] = s.Updates.Last()
 	}
 	writeJSON(w, out)
+}
+
+// releaseNotes answers with the notes of the releases an upgrade would bring (empty until a check has
+// found one). The notes of the running version are a file served with the page: releases/vX.Y.Z.md.
+func (s *Server) releaseNotes(w http.ResponseWriter, r *http.Request) {
+	up := []update.Note{}
+	if s.Updates != nil {
+		if n := s.Updates.Upcoming(); n != nil {
+			up = n
+		}
+	}
+	writeJSON(w, map[string]any{"upcoming": up})
 }
 
 // SetUpdates tells the server which version is running and where to look for newer ones.

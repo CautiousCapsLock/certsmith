@@ -189,3 +189,86 @@ func TestDue(t *testing.T) {
 		}
 	}
 }
+
+// apiList serves both the latest release and the list of releases, and counts requests to the list.
+func apiList(t *testing.T, latest, list string, listStatus int, listCalls *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/name/releases/latest":
+			_, _ = w.Write([]byte(latest))
+		case "/repos/owner/name/releases":
+			if listCalls != nil {
+				*listCalls++
+			}
+			w.WriteHeader(listStatus)
+			_, _ = w.Write([]byte(list))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestAnUpgradeBringsTheNotesOfEveryNewerRelease(t *testing.T) {
+	latest := `{"tag_name":"v0.14.0","html_url":"https://github.com/owner/name/releases/tag/v0.14.0","body":"- C"}`
+	list := `[
+	  {"tag_name":"v0.15.0","draft":true,"body":"- never published"},
+	  {"tag_name":"v0.14.0","html_url":"https://github.com/owner/name/releases/tag/v0.14.0","published_at":"2026-10-20T10:00:00Z","body":"- C"},
+	  {"tag_name":"v0.13.1-rc1","prerelease":true,"body":"- candidate"},
+	  {"tag_name":"v0.13.0","html_url":"http://insecure.example/x","body":"## New\n- B"},
+	  {"tag_name":"v0.12.1","body":"- A, the running version"},
+	  {"tag_name":"v0.12.0","body":"- older"}]`
+	srv := apiList(t, latest, list, 200, nil)
+	defer srv.Close()
+	c := checker(srv, "0.12.1+abc")
+	if got := c.Check(context.Background()); !got.Available {
+		t.Fatalf("an update must be available: %+v", got)
+	}
+	up := c.Upcoming()
+	if len(up) != 2 || up[0].Version != "v0.14.0" || up[1].Version != "v0.13.0" {
+		t.Fatalf("upcoming = %+v, want v0.14.0 then v0.13.0 only", up)
+	}
+	if up[0].Notes != "- C" || up[0].URL == "" || up[0].Published.IsZero() {
+		t.Errorf("details missing: %+v", up[0])
+	}
+	if up[1].URL != "" {
+		t.Errorf("a link that is not https must be dropped: %q", up[1].URL)
+	}
+}
+
+func TestNotesFallBackToTheLatestReleaseAndAreNotAskedForWhenUpToDate(t *testing.T) {
+	latest := `{"tag_name":"v0.14.0","body":"- C"}`
+	srv := apiList(t, latest, `oops`, 500, nil)
+	defer srv.Close()
+	c := checker(srv, "0.12.1")
+	c.Check(context.Background())
+	if up := c.Upcoming(); len(up) != 1 || up[0].Version != "v0.14.0" || up[0].Notes != "- C" {
+		t.Errorf("with the list unavailable the newest release's own notes are used: %+v", up)
+	}
+	calls := 0
+	srv2 := apiList(t, latest, `[]`, 200, &calls)
+	defer srv2.Close()
+	c2 := checker(srv2, "0.14.0")
+	c2.Check(context.Background())
+	if calls != 0 || len(c2.Upcoming()) != 0 {
+		t.Errorf("up to date: the list must not be requested (%d calls) and there is nothing upcoming: %+v", calls, c2.Upcoming())
+	}
+}
+
+func TestLongNotesAreClippedAndAFailedCheckKeepsTheLastNotes(t *testing.T) {
+	long := strings.Repeat("é", maxNote) // two bytes each: the cut must not split one
+	srv := apiList(t, `{"tag_name":"v0.14.0","body":"`+long+`"}`, `[]`, 200, nil)
+	c := checker(srv, "0.12.1")
+	c.Check(context.Background())
+	up := c.Upcoming()
+	if len(up) != 1 || len(up[0].Notes) > maxNote+8 || !strings.HasSuffix(up[0].Notes, "…") {
+		t.Fatalf("notes must be clipped: %d bytes", len(up[0].Notes))
+	}
+	srv.Close() // the next check cannot reach the host
+	if got := c.Check(context.Background()); got.Error == "" {
+		t.Fatal("expected the check to fail")
+	}
+	if len(c.Upcoming()) != 1 {
+		t.Error("a failed check must keep the notes of the last good one")
+	}
+}

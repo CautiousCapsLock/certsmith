@@ -438,3 +438,16 @@ table.auditlist td:nth-child(2) { white-space: nowrap; }
 /* HTTPS certificate card: what the page is serving now */
 .certline { margin: 2px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow-wrap: anywhere; }
 .certline .meta { margin-top: 3px; }
+
+/* release notes dialog */
+.relnotes { font-size: 14px; line-height: 1.5; }
+.relnotes h3 { font-size: 15px; margin: 16px 0 6px; }
+.relnotes h4 { font-size: 14px; margin: 12px 0 4px; }
+.relnotes ul { margin: 4px 0 10px; padding-left: 20px; }
+.relnotes li { margin: 5px 0; }
+.relnotes p { margin: 6px 0; }
+.relnotes code { font-family: var(--mono); font-size: 12.5px; background: var(--idle-bg); padding: 1px 5px; border-radius: 4px; }
+.relhead { margin: 18px 0 6px; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--panel); border-radius: 0 8px 8px 0; }
+.relhead.upcoming { border-left-color: var(--accent); }
+.relhead:first-child { margin-top: 0; }
+.relver-h { font-size: 16px; margin: 14px 0 4px; }

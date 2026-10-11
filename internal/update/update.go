@@ -13,10 +13,12 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultRepo is the repository releases are published in. CERTSMITH_REPO overrides it.
@@ -37,6 +39,21 @@ type Info struct {
 	Repo      string    `json:"repo"`
 }
 
+// Note is the release notes of one published release that is newer than the running version.
+type Note struct {
+	Version   string    `json:"version"` // the tag, for example v0.15.0
+	Published time.Time `json:"published"`
+	URL       string    `json:"url"`   // release page, https only
+	Notes     string    `json:"notes"` // Markdown, as the release was published with
+}
+
+// maxNote bounds one release's notes, and maxNotes how many are kept: the page shows what an upgrade
+// brings, not a changelog of everything.
+const (
+	maxNote  = 16 << 10
+	maxNotes = 5
+)
+
 // Checker remembers the last answer.
 type Checker struct {
 	Repo    string
@@ -44,8 +61,9 @@ type Checker struct {
 	Version string
 	Client  *http.Client
 
-	mu   sync.Mutex
-	last Info
+	mu    sync.Mutex
+	last  Info
+	notes []Note // newest first; only the releases newer than Version
 }
 
 var repoRe = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
@@ -76,6 +94,76 @@ type release struct {
 	Published  time.Time `json:"published_at"`
 	Draft      bool      `json:"draft"`
 	Prerelease bool      `json:"prerelease"`
+	Body       string    `json:"body"`
+}
+
+// Upcoming returns the release notes of the releases newer than the running version, newest first. It is
+// empty until a check has found an update, and it is kept out of Info so that the page's regular refresh
+// does not carry it.
+func (c *Checker) Upcoming() []Note {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Note(nil), c.notes...)
+}
+
+func clip(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxNote {
+		return s
+	}
+	s = s[:maxNote]
+	for len(s) > 0 && !utf8.ValidString(s) { // do not end in half a character
+		s = s[:len(s)-1]
+	}
+	return strings.TrimSpace(s) + "\n\n…"
+}
+
+// safeURL keeps a link only when it is a plain https address.
+func safeURL(u string) string {
+	if !strings.HasPrefix(u, "https://") || strings.ContainsAny(u, " \t\r\n\"'<>") {
+		return ""
+	}
+	return u
+}
+
+// fetchNotes lists the published releases and keeps the ones newer than the running version. It is only
+// asked when an update exists, and is best effort: on any failure the caller keeps the newest one's notes.
+func (c *Checker) fetchNotes(ctx context.Context) []Note {
+	url := strings.TrimRight(c.APIBase, "/") + "/repos/" + c.Repo + "/releases?per_page=20"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "certsmith/"+c.Version)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil
+	}
+	var rels []release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&rels); err != nil {
+		return nil
+	}
+	var out []Note
+	for _, r := range rels {
+		if r.Draft || r.Prerelease || !tagRe.MatchString(r.Tag) {
+			continue
+		}
+		if cmp, ok := Compare(r.Tag, c.Version); !ok || cmp <= 0 {
+			continue
+		}
+		out = append(out, Note{Version: r.Tag, Published: r.Published, URL: safeURL(r.HTMLURL), Notes: clip(r.Body)})
+	}
+	sort.SliceStable(out, func(i, j int) bool { cmp, _ := Compare(out[i].Version, out[j].Version); return cmp > 0 })
+	if len(out) > maxNotes {
+		out = out[:maxNotes]
+	}
+	return out
 }
 
 var tagRe = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.+-]*)?$`)
@@ -83,6 +171,8 @@ var tagRe = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.+-]*)?
 // Check asks for the latest published release and records the answer.
 func (c *Checker) Check(ctx context.Context) Info {
 	info := Info{Current: c.Version, Repo: c.Repo, CheckedAt: time.Now()}
+	var notes []Note
+	setNotes := false
 	rel, err := c.fetch(ctx)
 	if err != nil {
 		info.Error = err.Error()
@@ -96,9 +186,21 @@ func (c *Checker) Check(ctx context.Context) Info {
 		if cmp, ok := Compare(rel.Tag, c.Version); ok && cmp > 0 {
 			info.Available = true
 		}
+		notes = nil
+		if info.Available {
+			// what the upgrade brings: every release between here and the newest (best effort)
+			notes = c.fetchNotes(ctx)
+			if len(notes) == 0 {
+				notes = []Note{{Version: rel.Tag, Published: rel.Published, URL: safeURL(rel.HTMLURL), Notes: clip(rel.Body)}}
+			}
+		}
+		setNotes = true
 	}
 	c.mu.Lock()
 	c.last = info
+	if setNotes { // a failed check keeps the notes of the last good one
+		c.notes = notes
+	}
 	c.mu.Unlock()
 	return info
 }

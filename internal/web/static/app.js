@@ -300,6 +300,98 @@ async function copyText(text) {
   return ok;
 }
 
+// Release notes are a small piece of Markdown: ## headings, - bullets, **bold**, `code`, [text](https://...)
+// links, fenced code and paragraphs. They are drawn from text nodes only, never as HTML, and only https
+// links are made.
+function notesView(md) {
+  const root = h('div', { class: 'relnotes' });
+  const inline = text => {
+    const out = [], re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https:\/\/[^\s)"'<>]+\))/g;
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) out.push(text.slice(last, m.index));
+      const tok = m[0];
+      if (tok.startsWith('**')) out.push(h('strong', {}, tok.slice(2, -2)));
+      else if (tok.startsWith('`')) out.push(h('code', {}, tok.slice(1, -1)));
+      else { const l = /^\[([^\]]+)\]\((https:\/\/[^)]+)\)$/.exec(tok); out.push(h('a', { href: l[2], target: '_blank', rel: 'noopener' }, l[1])); }
+      last = m.index + tok.length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  };
+  let list = null, para = [], code = null;
+  const flushPara = () => { if (para.length) { root.append(h('p', {}, inline(para.join(' ')))); para = []; } };
+  const flushList = () => { list = null; };
+  for (const raw of String(md || '').replace(/\r/g, '').split('\n')) {
+    if (code) {
+      if (/^```/.test(raw)) { root.append(commandBlock(code.join('\n'))); code = null; } else code.push(raw);
+      continue;
+    }
+    const line = raw.trimEnd();
+    let m;
+    if (/^```/.test(line)) { flushPara(); flushList(); code = []; continue; }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) { flushPara(); flushList(); root.append(h(m[1].length <= 2 ? 'h3' : 'h4', {}, inline(m[2]))); continue; }
+    if ((m = /^\s*[-*]\s+(.*)$/.exec(line))) {
+      flushPara();
+      if (!list) { list = h('ul', {}); root.append(list); }
+      list.append(h('li', {}, inline(m[1])));
+      continue;
+    }
+    if (line.trim() === '') { flushPara(); flushList(); continue; }
+    if (list && /^\s+\S/.test(line)) { // a wrapped bullet continues the one above
+      const li = list.lastElementChild;
+      li.append(' ', ...inline(line.trim()));
+      continue;
+    }
+    flushList();
+    para.push(line.trim());
+  }
+  if (code) root.append(commandBlock(code.join('\n')));
+  flushPara();
+  return root;
+}
+
+// What this version brings and, when a newer release exists, what upgrading to it will change.
+async function releaseNotesDialog(info) {
+  const body = h('div', { class: 'relwrap' }, h('p', { class: 'meta' }, 'Loading…'));
+  const repo = (info && info.repo) || '';
+  const close = modal('Release notes', body, closeFn => [
+    repo ? h('a', { class: 'meta', href: 'https://github.com/' + repo + '/releases', target: '_blank', rel: 'noopener' }, 'All releases on GitHub') : null,
+    h('div', { class: 'grow' }),
+    h('button', { class: 'btn primary', onclick: closeFn }, 'Close')]);
+  void close;
+  const parts = [];
+  try {
+    const mine = plainVersion(appVersion);
+    if (info && info.available) {
+      let up = [];
+      try { up = (await api('GET', '/api/release-notes')).upcoming || []; } catch (_) { /* shown below */ }
+      const newest = up.length ? plainVersion(up[0].version) : plainVersion(info.latest);
+      parts.push(h('div', { class: 'relhead upcoming' }, h('strong', {}, 'Upgrading from ' + mine + ' to ' + newest),
+        h('div', { class: 'meta' }, 'This is what the upgrade changes' + (up.length > 1 ? ', newest first.' : '.'))));
+      if (!up.length) parts.push(h('p', { class: 'meta' }, 'The notes for version ' + newest + ' could not be loaded just now. They are on the release page.'));
+      up.forEach(n => parts.push(h('section', { class: 'relver' },
+        h('h3', { class: 'relver-h' }, 'Version ' + plainVersion(n.version), n.published && !zero(n.published) ? h('span', { class: 'meta' }, ' · ' + fmt(n.published).replace(/, \d\d:\d\d$/, '')) : null),
+        n.notes ? notesView(n.notes) : h('p', { class: 'meta' }, 'This release has no notes.'),
+        n.url ? h('p', {}, h('a', { href: n.url, target: '_blank', rel: 'noopener' }, 'Release page')) : null)));
+    }
+    // the notes of the running version are a file that ships with the program; a development build shows
+    // the notes being written for the release it leads to
+    const dev = /-/.test(mine);
+    const file = 'v' + mine.split('-')[0] + '.md';
+    let text = '';
+    try {
+      const r = await fetch('releases/' + file, { credentials: 'same-origin' });
+      if (r.ok && !/^\s*</.test(text = await r.text())) { /* markdown */ } else text = '';
+    } catch (_) { text = ''; }
+    parts.push(h('div', { class: 'relhead' }, h('strong', {}, dev ? 'This build (' + mine + '), notes for the release in progress' : 'This version: ' + mine)));
+    parts.push(text ? notesView(text) : h('p', { class: 'meta' }, 'No release notes are bundled with this build.'));
+  } catch (e) {
+    parts.push(h('p', { class: 'err' }, 'Could not show the release notes: ' + e.message));
+  }
+  body.replaceChildren(...parts);
+}
+
 // A command to paste into a terminal: shown as text, selectable with one click, with a Copy button.
 function commandBlock(text) {
   let timer;
@@ -2150,7 +2242,7 @@ function renderSettings() {
         if (info.available) {
           const link = safeLink(info.url);
           kids.push(h('div', { class: 'swline' }, chip('Update available', 'warn'), h('strong', {}, 'Version ' + plainVersion(info.latest)),
-            link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, 'Release notes') : null));
+            link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, 'Release page') : null));
           kids.push(h('p', { class: 'meta', style: 'margin:6px 0 4px' },
             'To update, run this on the server that runs CertSmith, as root or with sudo. Settings and data are kept, and the previous version is restored if the new one does not start.'));
           kids.push(commandBlock('bash -c "$(wget -nv -O- https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
@@ -2173,7 +2265,8 @@ function renderSettings() {
     });
     return card('Software', 'The installed version, and whether a newer release has been published.',
       h('div', { class: 'swline' }, h('strong', {}, 'Version ' + ver), build ? h('span', { class: 'meta' }, 'build ' + build) : null),
-      status, h('div', { style: 'margin:10px 0 6px' }, btn), updChk.wrap);
+      status, h('div', { class: 'row', style: 'margin:10px 0 6px' }, btn,
+        h('button', { class: 'btn', type: 'button', title: 'What this version brings, and what a newer one would change', onclick: () => releaseNotesDialog(updateInfo) }, 'Release notes')), updChk.wrap);
   };
 
   // Settings are grouped under bars that fold, so the page can be reduced to the part being worked on.

@@ -69,7 +69,7 @@ The checksum is published with the release, so it detects a damaged or incomplet
 | Visibility | Every API call sent to a device is recorded with the device's response and shown beside the target, together with a description of each call a target type can make. |
 | Download | A certificate and its private key can be downloaded as a password-protected PKCS#12 file or as PEM files, to install by hand on a device with no API. It asks for the user's own password and is recorded in the audit log. |
 | Auditing | A log of certificate operations and a separate audit log of administrative actions. Both can be filtered. |
-| Versions | The running version is shown on every page. Once a day the daemon checks whether a newer release has been published and, if so, shows the install command to run. The check can be switched off. |
+| Versions | The running version is shown on every page. Once a day the daemon checks whether a newer release has been published and, if so, shows the install command to run, with a Copy button. **Release notes** (Settings → Software) lists in plain bullet points what this version brings and, when an update exists, what upgrading to it will change. The check can be switched off. |
 
 ### Status
 
