@@ -734,10 +734,16 @@ func (s *Server) saveDNS(w http.ResponseWriter, r *http.Request) {
 // directory and the key the CA issued, and the HMAC key is stored sealed (a masked value on an edit
 // keeps the stored one). old is the provider as stored, if it is being edited.
 func (s *Server) normProvider(in *model.DNSProvider, old *model.DNSProvider) error {
+	return s.normProviderFor(in, old, true)
+}
+
+// normProviderFor is normProvider with the DNS credentials optional: checking a CA account never
+// touches DNS, so it must not demand credentials that only issuing needs.
+func (s *Server) normProviderFor(in *model.DNSProvider, old *model.DNSProvider, needDNS bool) error {
 	switch in.Authority {
 	case "", model.AuthorityLE:
 		in.Authority, in.CA, in.Directory, in.EABKid, in.EABHMAC, in.Email = "", "", "", "", "", ""
-		if in.Kind == "" {
+		if in.Kind == "" && needDNS {
 			return fmt.Errorf("choose a DNS provider: Let's Encrypt validates names with DNS-01")
 		}
 		return nil
@@ -777,7 +783,7 @@ func (s *Server) normProvider(in *model.DNSProvider, old *model.DNSProvider) err
 	if in.Email = strings.TrimSpace(in.Email); in.Email != "" && !strings.Contains(in.Email, "@") {
 		return fmt.Errorf("%q is not an email address", in.Email)
 	}
-	if in.Kind == "" && !acme.PreValidates(in.CA) {
+	if needDNS && in.Kind == "" && !acme.PreValidates(in.CA) {
 		return fmt.Errorf("%s checks every name with a DNS challenge, so this provider needs DNS credentials", acme.CALabel(in.CA))
 	}
 	return nil
@@ -799,7 +805,7 @@ func (s *Server) checkAccount(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	if err := s.normProvider(&in, old); err != nil {
+	if err := s.normProviderFor(&in, old, false); err != nil {
 		fail(w, 400, err.Error())
 		return
 	}

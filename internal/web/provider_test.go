@@ -241,3 +241,25 @@ func TestProvidersAtCAsThatPreValidateMayHaveNoDNSCredentialsOthersMayNot(t *tes
 		t.Fatalf("adding DNS credentials to it later: %d %s", code, body)
 	}
 }
+
+// Checking a CA account never touches DNS, so it must not ask for DNS credentials. The edit dialog
+// of a saved provider sends the CA details only (the stored DNS secrets are masked there).
+func TestCheckingAnAccountDoesNotAskForDNSCredentials(t *testing.T) {
+	ts, _ := newTestServer(t)
+	c := setupAndLogin(t, ts)
+	// ZeroSSL always challenges, so saving it without DNS credentials is refused...
+	if code, body, _ := call(t, c, "POST", ts.URL+"/api/dns", noDNS(map[string]any{"name": "Z", "ca": "zerossl"}), false, nil); code != 400 || !strings.Contains(body, "needs DNS credentials") {
+		t.Fatalf("saving without DNS credentials: %d %s", code, body)
+	}
+	// ...but checking its account with the same body is not: it gets as far as the CA, which is not there
+	code, body, _ := call(t, c, "POST", ts.URL+"/api/dns/check-account",
+		noDNS(map[string]any{"ca": "custom", "directory": "https://127.0.0.1:1/directory"}), false, nil)
+	if code != 400 || strings.Contains(body, "DNS credentials") || body == "" {
+		t.Fatalf("an account check must reach the CA and fail there, not on DNS credentials: %d %s", code, body)
+	}
+	code, body, _ = call(t, c, "POST", ts.URL+"/api/dns/check-account",
+		noDNS(map[string]any{"ca": "zerossl", "directory": "https://127.0.0.1:1/directory"}), false, nil)
+	if code != 400 || strings.Contains(body, "DNS credentials") {
+		t.Fatalf("ZeroSSL account check without DNS credentials: %d %s", code, body)
+	}
+}
