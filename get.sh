@@ -10,7 +10,10 @@
 #
 # A minimal system may have neither curl nor wget. wget works the same way:
 #
-#   bash -c "$(wget -qO- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+#   bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+#
+# If that returns at once and prints nothing, the script could not be downloaded (a private
+# repository answers 404): run the download part on its own to see the error.
 #
 # and curl can be installed first with: apt-get update && apt-get install -y curl
 #

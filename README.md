@@ -33,10 +33,10 @@ A minimal system, such as a container image, may have neither `curl` nor `wget`.
 ```sh
 apt-get update && apt-get install -y curl
 # or, where wget is installed:
-bash -c "$(wget -qO- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
 ```
 
-The commands read from GitHub without credentials, so they need a public repository. For a private one, copy the release archive to the host and install it by hand (see [Installation](#installation)).
+The commands read from GitHub without credentials, so they need a public repository. If a command returns at once and prints nothing, the download failed (GitHub answers 404 for a private repository): run `curl -fsSL` or `wget -nv -O-` with the same address on its own to see the error. For a private repository, copy the release archive to the host and install it by hand (see [Installation](#installation)).
 
 Installer options follow the script, after a placeholder argument:
 
