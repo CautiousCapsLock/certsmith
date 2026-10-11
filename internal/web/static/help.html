@@ -253,14 +253,14 @@
   <li><strong>Admin audit log</strong>: what users did in CertSmith: sign-ins (including failed ones), users created or deleted, passwords changed or reset, settings changed (the setting names, never the values), every check for a newer version (manual, or the automatic daily one with no user), and every provider, certificate and target that was added, changed, deleted, deployed, paused or resumed, with the user and the address they came from.</li>
 </ul>
 <p>Both lists have a filter box that narrows the rows as text is entered, for example by user, action, subject or message.</p>
-<p>The audit log never contains passwords, tokens or keys. Behind a reverse proxy, the address shown is the one the proxy reported (the connection address is shown in brackets); treat it as a hint, because anyone who can reach the server directly could forge that header.</p>
+<p>The audit log never contains passwords, tokens or keys. Behind a reverse proxy, list the proxy under <strong>Settings, Users, Reverse proxy</strong>: the address shown is then the real client's, with the proxy in brackets. Without that setting, an address the proxy reported is shown only as a hint, because anyone who can reach the server directly could forge it.</p>
 
 <h2 id="users">Users and passwords</h2>
 <ul>
   <li>All users listed under <strong>Settings &rarr; Users</strong> can sign in and have full administrative access. There are no roles.</li>
   <li><strong>Add user</strong> asks for a username and the new user's password twice. <strong>Reset password</strong> asks for the new password twice. Both, and <strong>Delete</strong>, also ask for <em>your own</em> password to confirm, so that a signed-in browser alone cannot create, change or remove accounts.</li>
   <li>Change the signed-in user's password in the <em>Your password</em> section of the same card. Doing so ends the user's other sessions.</li>
-  <li>Repeated failed sign-ins from one address or for one user are rate-limited automatically. Every sign-in, successful or not, is recorded in the <a href="#events">audit log</a>.</li>
+  <li>After 8 failed sign-ins within 10 minutes from one address, or for one user, further sign-ins are refused until the failures age out (at most 10 minutes). It is a temporary lock held in memory: it is not a permanent ban and a restart clears it. Without a trusted proxy configured, every connection through a reverse proxy counts as the proxy's address, so failures from anyone lock sign-in for everyone for that time. Every sign-in, successful, failed or refused (once per lockout), is recorded in the <a href="#events">audit log</a>.</li>
   <li>Scripts can call the API with HTTP Basic authentication using any user.</li>
 </ul>
 <div class="note"><strong>Lost the only administrator password.</strong> On the server, stop the service and run <code>certsmith reset-admin -data /var/lib/certsmith</code> as the service user. The command sets a new random password and prints it. With <code>-wipe</code>, all users are removed and the first-run setup appears again.</div>

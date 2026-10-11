@@ -230,24 +230,8 @@ func normDomains(in []string) ([]string, error) {
 
 // ---- audit ------------------------------------------------------------------------------
 
-// clientAddr is where a request came from, for the audit log. Behind a reverse proxy the connection
-// is the proxy's, so the address it reported in X-Forwarded-For is shown too. That header can be
-// forged by whoever reaches the server directly, which is why this is only ever displayed, never
-// used to decide anything (the sign-in limiter keys on the connection address).
-func clientAddr(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if xff := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); xff != "" && len(xff) <= 45 &&
-		strings.Trim(xff, "0123456789abcdefABCDEF:.") == "" {
-		return xff + " (via " + host + ")"
-	}
-	return host
-}
-
 func (s *Server) auditAs(r *http.Request, user, action, subject, detail string) {
-	s.St.AddAudit(model.AuditEntry{User: user, IP: clientAddr(r), Action: action, Subject: subject, Detail: detail})
+	s.St.AddAudit(model.AuditEntry{User: user, IP: s.clientAddr(r), Action: action, Subject: subject, Detail: detail})
 }
 
 func (s *Server) audit(r *http.Request, action, subject, detail string) {
@@ -553,6 +537,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	in.DNSResolvers = resolvers
+	proxies, _, perr := parseProxies(in.TrustedProxies)
+	if perr != nil {
+		fail(w, 400, "trusted proxies: "+perr.Error())
+		return
+	}
+	in.TrustedProxies = proxies
 	switch in.DNSCheck {
 	case "auto", "check", "wait":
 	case "":

@@ -702,7 +702,7 @@ const AUDIT_LABELS = {
   'cert.issue': 'Issuance started', 'cert.cancel': 'Issuance stopped',
   'target.create': 'Target added', 'target.update': 'Target changed', 'target.delete': 'Target deleted',
   'target.deploy': 'Deployment started', 'target.pause': 'Automatic deployment paused', 'target.resume': 'Automatic deployment resumed',
-  'endpoints.check': 'Endpoints checked', 'update.check': 'Update check', 'event': 'Security event',
+  'endpoints.check': 'Endpoints checked', 'update.check': 'Update check', 'signin.blocked': 'Sign-in blocked', 'event': 'Security event',
 };
 let eventsTab = 'certs', auditFilter = '', eventFilter = '';
 let uiCert = {}; // the certificate this page itself is served with
@@ -1617,6 +1617,8 @@ function renderSettings() {
   };
   const hook = F('webhook_url', 'Webhook URL (optional)', 'text', s.webhook_url, { help: 'Slack, Mattermost, Microsoft Teams or any endpoint that accepts JSON with a "text" field.' });
 
+  const proxies = F('trusted_proxies', 'Trusted proxies', 'textarea', (s.trusted_proxies || []).join('\n'),
+    { help: 'One address or network per line, for example 192.0.2.5 or 192.0.2.0/24. Only a connection from one of these is believed when it says which client it forwards. Leave empty if nothing sits in front of CertSmith, or to treat every connection as the client itself.' });
   const updChk = F('update_check', 'Check for updates automatically', 'bool', !s.update_check_disabled,
     { help: 'Asks the release host (api.github.com) once a day whether a newer version has been published. Nothing about this installation is sent.' });
 
@@ -1624,6 +1626,7 @@ function renderSettings() {
     acme_directory: dir.get(), acme_email: email.get(), renew_before_days: +renew.get() || 30, warn_days: +warn.get() || 14,
     probe_minutes: +probe.get() || 15, dns_resolvers: resolvers.get(), dns_check: dnsCheck.get(), dns_wait_seconds: +dnsWait.get() || 25,
     notify_success: !!s.notify_success, webhook_url: hook.get().trim(), update_check_disabled: updChk.get() !== 'true',
+    trusted_proxies: proxies.get().split(/[\s,]+/).filter(Boolean),
     alert_routing: { email: alertTypes.filter(t => alertBoxes.email[t.id].checked).map(t => t.id), webhook: alertTypes.filter(t => alertBoxes.webhook[t.id].checked).map(t => t.id) },
     smtp: { enabled: sm.enabled.get() === 'true', host: sm.host.get().trim(), port: +sm.port.get() || 587, security: sm.security.get(),
       username: sm.username.get(), password: sm.password.get(), from: sm.from.get().trim(),
@@ -1785,7 +1788,10 @@ function renderSettings() {
       two([webUICard()], [softwareCard()])),
     group('users', 'Users', 'Accounts and your own password',
       // users are a wide table with a password form: they get the full width
-      h('div', { class: 'usersrow' }, usersCard())),
+      h('div', { class: 'usersrow' }, usersCard()),
+      h('div', { class: 'usersrow' }, card('Reverse proxy',
+        'If CertSmith is reached through a reverse proxy, list its address here. Sign-in attempts are then counted, limited and recorded against the real client address instead of the proxy, so one person guessing passwords cannot lock everyone else out.',
+        proxies.wrap))),
     h('div', { class: 'savebar' }, testMsg,
       h('button', { class: 'btn', onclick: async e => {
         testMsg.className = 'testmsg'; testMsg.textContent = 'Sending…';

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -576,5 +577,115 @@ func TestBlockedAttemptsDoNotExtendTheLockAndASuccessClearsTheCount(t *testing.T
 	l.reset("ip:192.0.2.1")
 	if l.blocked("ip:192.0.2.1") {
 		t.Error("a successful sign-in must clear the count")
+	}
+}
+
+// ---- trusted proxies ----
+
+func TestForwardedAddressesAreBelievedOnlyFromTrustedProxies(t *testing.T) {
+	_, trusted, err := parseProxies([]string{"10.254.254.5", " 192.0.2.0/24 ", "2001:db8::1", "10.254.254.5"})
+	if err != nil || len(trusted) != 3 {
+		t.Fatalf("parse: %v %v", trusted, err)
+	}
+	for _, tc := range []struct {
+		name, conn string
+		xff        []string
+		want       string
+		via        bool
+	}{
+		{"a stranger cannot name a client", "198.51.100.7", []string{"203.0.113.9"}, "198.51.100.7", false},
+		{"a trusted proxy names the client", "10.254.254.5", []string{"203.0.113.9"}, "203.0.113.9", true},
+		{"the right-most untrusted entry wins, so a forged left entry is ignored", "10.254.254.5", []string{"1.2.3.4, 203.0.113.9"}, "203.0.113.9", true},
+		{"a chain of trusted proxies is walked through", "10.254.254.5", []string{"203.0.113.9, 192.0.2.77"}, "203.0.113.9", true},
+		{"no header from a trusted proxy is the proxy", "10.254.254.5", nil, "10.254.254.5", false},
+		{"a header that is not an address is not believed", "10.254.254.5", []string{"not-an-ip"}, "10.254.254.5", false},
+		{"an IPv6 client", "2001:db8::1", []string{"2001:db8:abcd::7"}, "2001:db8:abcd::7", true},
+	} {
+		got, via := resolveClient(tc.conn, tc.xff, trusted)
+		if got != tc.want || via != tc.via {
+			t.Errorf("%s: got %s via=%v, want %s via=%v", tc.name, got, via, tc.want, tc.via)
+		}
+	}
+	if got, via := resolveClient("10.254.254.5", []string{"203.0.113.9"}, nil); got != "10.254.254.5" || via {
+		t.Errorf("with no proxy configured the connection is the client, got %s via=%v", got, via)
+	}
+	if _, _, err := parseProxies([]string{"not an address"}); err == nil {
+		t.Error("an entry that is neither an address nor a network must be refused")
+	}
+}
+
+// With the proxy trusted, one client's failures lock that client only; without it they lock everyone.
+func TestTrustedProxyMakesTheLockoutPerClient(t *testing.T) {
+	srv, ws := newTestServer(t)
+	setupAndLogin(t, srv)
+	if err := ws.St.Update(func(db *model.DB) error { db.Settings.TrustedProxies = []string{"127.0.0.1"}; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	from := func(ip string) func(*http.Request) {
+		return func(r *http.Request) { r.Header.Set("X-Forwarded-For", ip) }
+	}
+	attempt := func(user, pw, ip string) int {
+		code, _, _ := call(t, newClient(), "POST", srv.URL+"/api/login", creds(user, pw), false, from(ip))
+		return code
+	}
+	for i := 0; i < maxFailures; i++ {
+		attempt("nobody"+strconv.Itoa(i), "wrong password!!", "203.0.113.50") // the attacker, guessing at many accounts
+	}
+	if code := attempt("admin", pw1, "203.0.113.50"); code != 429 {
+		t.Fatalf("the attacker's address is locked out: %d, want 429", code)
+	}
+	if code := attempt("admin", pw1, "198.51.100.10"); code != 200 {
+		t.Fatalf("a different client behind the same proxy is locked out too: %d, want 200", code)
+	}
+	// and the lockout was written to the audit log, once
+	n := 0
+	ws.St.View(func(db *model.DB) {
+		for _, a := range db.Audit {
+			if a.Action == "signin.blocked" {
+				n++
+				if !strings.HasPrefix(a.IP, "203.0.113.50 (via ") {
+					t.Errorf("blocked entry address = %q", a.IP)
+				}
+			}
+		}
+	})
+	attempt("admin", pw1, "203.0.113.50")
+	attempt("admin", pw1, "203.0.113.50")
+	m := 0
+	ws.St.View(func(db *model.DB) {
+		for _, a := range db.Audit {
+			if a.Action == "signin.blocked" {
+				m++
+			}
+		}
+	})
+	if n != 1 || m != 1 {
+		t.Errorf("lockout audit entries = %d then %d, want 1 and still 1 after more refused attempts", n, m)
+	}
+}
+
+func TestTrustedProxiesAreValidatedAndNormalisedWhenSaved(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := setupAndLogin(t, srv)
+	code, body, _ := call(t, c, "GET", srv.URL+"/api/state", nil, false, nil)
+	if code != 200 {
+		t.Fatal(body)
+	}
+	var st struct {
+		DB map[string]any `json:"db"`
+	}
+	_ = json.Unmarshal([]byte(body), &st)
+	set, _ := st.DB["settings"].(map[string]any)
+	set["trusted_proxies"] = []string{"10.254.254.5", "192.0.2.17/24"}
+	if code, body, _ := call(t, c, "PUT", srv.URL+"/api/settings", set, false, nil); code != 200 {
+		t.Fatalf("save: %d %s", code, body)
+	}
+	got := ws.St.Snapshot().Settings.TrustedProxies
+	if len(got) != 2 || got[0] != "10.254.254.5/32" || got[1] != "192.0.2.0/24" {
+		t.Errorf("stored = %v, want the normal form 10.254.254.5/32 and 192.0.2.0/24", got)
+	}
+	set["trusted_proxies"] = []string{"proxy.example.com"}
+	if code, body, _ := call(t, c, "PUT", srv.URL+"/api/settings", set, false, nil); code != 400 || !strings.Contains(body, "trusted proxies") {
+		t.Errorf("a host name must be refused: %d %s", code, body)
 	}
 }

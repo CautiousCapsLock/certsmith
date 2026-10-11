@@ -41,6 +41,10 @@ type Settings struct {
 	// UpdateCheckDisabled turns off the daily look for a newer release. It is a "disabled" switch so
 	// that the zero value, which every existing installation has, means the check is on.
 	UpdateCheckDisabled bool `json:"update_check_disabled"`
+
+	// TrustedProxies are the addresses or networks of reverse proxies in front of CertSmith. Only a
+	// connection from one of them is believed when it says which client it forwards (X-Forwarded-For).
+	TrustedProxies []string `json:"trusted_proxies,omitempty"`
 }
 
 func DefaultSettings() Settings {

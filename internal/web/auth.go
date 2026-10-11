@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -148,9 +147,24 @@ func userFrom(r *http.Request) string {
 type limiter struct {
 	mu    sync.Mutex
 	fails map[string][]time.Time
+	noted map[string]time.Time // when a lockout was last written to the audit log, per key
 }
 
-func newLimiter() *limiter { return &limiter{fails: map[string][]time.Time{}} }
+func newLimiter() *limiter {
+	return &limiter{fails: map[string][]time.Time{}, noted: map[string]time.Time{}}
+}
+
+// noteDue reports whether a lockout for key should be written to the audit log now: the first
+// refusal in each window is, the rest are not.
+func (l *limiter) noteDue(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if t, ok := l.noted[key]; ok && time.Since(t) < failureWindow {
+		return false
+	}
+	l.noted[key] = time.Now()
+	return true
+}
 
 func (l *limiter) prune(key string) []time.Time {
 	cut := time.Now().Add(-failureWindow)
@@ -199,12 +213,19 @@ func (l *limiter) reset(keys ...string) {
 // failure keys: the caller's address (behind a reverse proxy that is the proxy,
 // so effectively global, and safe against spoofed X-Forwarded-For) and the
 // targeted account (so guessing at one account cannot lock out the others).
-func limitKeys(r *http.Request, user string) []string {
-	h, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		h = r.RemoteAddr
+func (s *Server) limitKeys(r *http.Request, user string) []string {
+	ip, _ := s.clientIP(r)
+	return []string{"ip:" + ip, "user:" + strings.ToLower(user)}
+}
+
+// noteBlocked records in the audit log that a sign-in was refused because of the throttle. A lockout
+// is recorded once per window and address, not once per refused attempt, so an attacker cannot fill
+// the log with it.
+func (s *Server) noteBlocked(r *http.Request, name string, keys []string) {
+	if !s.lim.noteDue(keys[0]) {
+		return
 	}
-	return []string{"ip:" + h, "user:" + strings.ToLower(user)}
+	s.auditAs(r, "", "signin.blocked", strconv.Quote(name), "refused: too many failed attempts from this address or for this account")
 }
 
 // ---- middleware ---------------------------------------------------------------------
@@ -265,8 +286,9 @@ func (s *Server) basicUser(r *http.Request) (model.User, bool) {
 		return model.User{}, false
 	}
 	name = strings.ToLower(name)
-	keys := limitKeys(r, name)
+	keys := s.limitKeys(r, name)
 	if s.lim.blocked(keys...) {
+		s.noteBlocked(r, name, keys)
 		return model.User{}, false
 	}
 	u, found := s.findUser(name)
@@ -350,8 +372,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.ToLower(strings.TrimSpace(in.Username))
-	keys := limitKeys(r, name)
+	keys := s.limitKeys(r, name)
 	if s.lim.blocked(keys...) {
+		s.noteBlocked(r, name, keys)
 		fail(w, http.StatusTooManyRequests, "too many failed attempts - try again in a few minutes")
 		return
 	}
@@ -392,7 +415,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 // cannot lock the owner out or add a back door silently.
 func (s *Server) confirmSelf(w http.ResponseWriter, r *http.Request, password string) (model.User, bool) {
 	me, ok := s.findUser(userFrom(r))
-	keys := limitKeys(r, userFrom(r))
+	keys := s.limitKeys(r, userFrom(r))
 	if !ok {
 		fail(w, http.StatusUnauthorized, "sign in required")
 		return model.User{}, false
@@ -564,7 +587,7 @@ func (s *Server) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 
 // recordLogin remembers when and from where a user last signed in, for the user list.
 func (s *Server) recordLogin(r *http.Request, name string) {
-	from := clientAddr(r)
+	from := s.clientAddr(r)
 	_ = s.St.Update(func(db *model.DB) error {
 		for i := range db.Users {
 			if strings.EqualFold(db.Users[i].Name, name) {
