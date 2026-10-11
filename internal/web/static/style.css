@@ -86,12 +86,17 @@ h2 { font-size: 15px; margin: 0; }
 .foldctl > summary { min-width: 16px; height: 20px; }
 .foldctl > summary:hover { color: var(--text); }
 /* the buttons column has a fixed width, so the other columns line up from one row to the next however many buttons a row has */
-.trow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(160px, .7fr) minmax(0, 2fr) 292px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); align-items: start; }
+.trow { display: grid; grid-template-columns: minmax(210px, 1.4fr) minmax(130px, .55fr) minmax(0, 2fr) 292px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); align-items: start; }
 .trow:first-child { border-top: 0; }
 .trow .nm { font-weight: 600; }
-.probe { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 1px 0; }
 .err { color: var(--bad); font-size: 12.5px; word-break: break-word; }
-.probe .perr { flex-basis: 100%; margin-top: 2px; }
+/* one checked address: the address on a line of its own, then what it serves on the left and its state at the
+   right-hand end, so the states line up from one address to the next whatever the lengths */
+.probe { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; margin: 3px 0 9px; }
+.probe > .paddr { grid-column: 1 / -1; overflow-wrap: break-word; word-break: normal; }
+.probe > .meta { grid-column: 1; }
+.probe > .pchips { grid-column: 2; display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.probe > .perr { grid-column: 1 / -1; }
 /* room below, so the button does not run into the next field, and a rule to close the section */
 /* a rule closes the test, so it reads as its own step above the choices it unlocks */
 .testblock { margin: 2px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
@@ -328,6 +333,8 @@ pre.acmelog .bad { color: var(--bad); }
 /* a long message (a device's error text) must wrap inside its column, never push the buttons away */
 .trow > div { min-width: 0; overflow-wrap: anywhere; }
 .trow > .row { flex-wrap: wrap; justify-content: flex-end; }
+/* a host name wraps at its dots and hyphens, not in the middle of a label like the generic mono rule above */
+.trow .meta.thost { word-break: normal; overflow-wrap: break-word; }
 
 /* certificate providers page: one section per kind of CA */
 .psection { margin-top: 22px; }

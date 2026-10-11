@@ -334,6 +334,18 @@ function deploymentNotes(message) {
   return h('ul', { class: 'notes' }, items.map(x => h('li', {}, x)));
 }
 
+// A host name as text that may wrap after each dot (the browser already wraps after hyphens), so a long
+// name breaks between its labels instead of in the middle of one.
+function breakable(s) {
+  const out = [];
+  for (const part of String(s).split(/(\.)/)) {
+    if (part === '') continue;
+    out.push(part);
+    if (part === '.') out.push(h('wbr'));
+  }
+  return out;
+}
+
 function probeLine(p, managed, manual) {
   let st;
   if (p.error) st = chip('unreachable', p.bad >= 2 ? 'bad' : 'warn');
@@ -341,23 +353,25 @@ function probeLine(p, managed, manual) {
   else if (!p.match && managed && manual) st = chipTitled('not the current certificate', 'warn', 'Import the current certificate on the device.');
   else if (!p.match && managed) st = chip('serving a different cert', p.bad >= 2 ? 'bad' : 'warn');
   else st = chip('serving', 'ok');
-  const kids = [h('span', { class: 'mono' }, p.addr), st];
+  const chips = [st];
+  let meta = null, perr = null;
   if (!p.error) {
     const d = daysLeft(p.not_after);
-    kids.push(chip(d < 0 ? 'expired' : d + ' d left', d <= 7 ? 'bad' : d <= S.settings.warn_days ? 'warn' : 'ok'));
+    chips.push(chip(d < 0 ? 'expired' : d + ' d left', d <= 7 ? 'bad' : d <= S.settings.warn_days ? 'warn' : 'ok'));
     if (p.chain_len === 1 && !p.self_signed) {
       const w = chip('chain incomplete', 'warn');
       w.title = 'The server sent only the certificate, not the intermediate CA that signed it. Browsers that cannot fetch it themselves will show the certificate as untrusted.';
-      kids.push(w);
+      chips.push(w);
     }
-    kids.push(h('span', { class: 'meta' }, (p.subject || '?') + ' · ' + (p.issuer || '?')));
+    meta = h('div', { class: 'meta' }, (p.subject || '?') + ' · ' + (p.issuer || '?'));
   } else {
     // the reason on its own line, in words, with the exact error beneath it
-    kids.push(h('div', { class: 'perr' },
+    perr = h('div', { class: 'perr' },
       h('div', { class: 'err' }, describeProbeError(p.error)),
-      h('div', { class: 'meta mono small' }, p.error)));
+      h('div', { class: 'meta mono small' }, p.error));
   }
-  return h('div', { class: 'probe', title: 'checked ' + ago(p.checked_at) }, kids);
+  return h('div', { class: 'probe', title: 'checked ' + ago(p.checked_at) },
+    h('div', { class: 'mono paddr' }, breakable(p.addr)), meta, h('div', { class: 'pchips' }, chips), perr);
 }
 
 // Before the first deployment the action is Deploy (always a deliberate click). Once a target has
@@ -442,7 +456,7 @@ function targetRow(t, c) {
   const status = [targetStatus(t, c)];
   if (t.deployed_at && !zero(t.deployed_at) && t.kind !== 'watch') status.push(h('div', { class: 'meta' }, 'deployed ' + ago(t.deployed_at)));
   return h('div', { class: 'trow' },
-    h('div', {}, h('div', { class: 'nm' }, t.name), h('div', { class: 'meta mono' }, targetAddress(t) || kind), targetAddress(t) ? h('div', { class: 'meta' }, kind) : null),
+    h('div', {}, h('div', { class: 'nm' }, t.name), h('div', { class: 'meta mono thost' }, breakable(targetAddress(t) || kind)), targetAddress(t) ? h('div', { class: 'meta' }, kind) : null),
     h('div', {}, status),
     h('div', {},
       t.last_error ? h('div', { class: 'err' }, t.last_error) : null,
