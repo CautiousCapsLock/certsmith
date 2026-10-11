@@ -20,6 +20,17 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Checked first, so a missing file fails in seconds and not after the tests and the build.
+      - name: Release notes exist for a stable release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          case "$TAG" in *-*) exit 0 ;; esac   # a pre-release may go without
+          file="internal/web/static/releases/${TAG}.md"
+          [ -f "$file" ] || { echo "::error::$file is missing: write the release notes before tagging a stable release"; exit 1; }
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
