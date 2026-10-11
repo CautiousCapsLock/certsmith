@@ -114,7 +114,7 @@ let authing = false;
 function authCard(...kids) {
   return h('div', { class: 'authwrap' }, h('div', { class: 'authcard' },
     h('div', { class: 'row', style: 'justify-content:center;margin-bottom:4px' },
-      h('img', { class: 'logo', src: 'logo.png', alt: '', width: 38, height: 38 }), h('h1', { style: 'margin:0' }, 'CertSmith')),
+      h('img', { class: 'logo', src: 'favicon.svg', alt: '', width: 30, height: 30 }), h('h1', { style: 'margin:0' }, 'CertSmith')),
     ...kids));
 }
 

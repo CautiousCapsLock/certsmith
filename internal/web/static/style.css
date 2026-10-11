@@ -29,7 +29,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .top { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
 .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 9px; }
-.logo { display: inline-block; flex: none; }
+.logo { display: inline-block; border-radius: 7px; flex: none; }
 nav { display: flex; gap: 2px; flex-wrap: wrap; }
 nav button { background: none; border: 0; color: var(--muted); padding: 7px 10px; border-radius: 7px; cursor: pointer; font: inherit; }
 nav button:hover { background: var(--idle-bg); }

@@ -202,7 +202,7 @@ func TestCSRFHeaderRequired(t *testing.T) {
 
 func TestStaticAssetsPublic(t *testing.T) {
 	srv, _ := newTestServer(t)
-	for _, p := range []string{"/", "/app.js", "/style.css", "/logo.png", "/favicon-32.png", "/favicon-48.png", "/apple-touch-icon.png"} {
+	for _, p := range []string{"/", "/app.js", "/style.css", "/favicon.svg"} {
 		if code, _, _ := call(t, newClient(), "GET", srv.URL+p, nil, false, nil); code != 200 {
 			t.Errorf("%s = %d, the login page must be able to load", p, code)
 		}
