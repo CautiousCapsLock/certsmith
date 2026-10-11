@@ -23,31 +23,25 @@ CertSmith automates the lifecycle of TLS certificates. It obtains certificates f
 On a Debian or Ubuntu host with systemd, as root or with `sudo`:
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
 ```
 
 The script downloads the latest release for the host architecture, verifies its SHA-256 checksum, and runs the installer packaged with it. The installer prints the address of the web interface and the fingerprint of its certificate.
 
-A minimal system, such as a container image, may have neither `curl` nor `wget`. Install one first, or use `wget` if that is present (the script uses whichever it finds):
+Ubuntu normally includes `wget` but not `curl`, so the commands here use `wget`; the script itself works with either. Where `curl` is the tool installed, replace `wget -nv -O-` with `curl -fsSL`. A minimal system with neither needs one first: `apt-get update && apt-get install -y wget`.
 
-```sh
-apt-get update && apt-get install -y curl
-# or, where wget is installed:
-bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
-```
-
-The commands read from GitHub without credentials, so they need a public repository. If a command returns at once and prints nothing, the download failed (GitHub answers 404 for a private repository): run `curl -fsSL` or `wget -nv -O-` with the same address on its own to see the error. For a private repository, copy the release archive to the host and install it by hand (see [Installation](#installation)).
+The commands read from GitHub without credentials, so they need a public repository. If a command returns at once and prints nothing, the download failed (GitHub answers 404 for a private repository): run `wget -nv -O-` with the same address on its own to see the error. For a private repository, copy the release archive to the host and install it by hand (see [Installation](#installation)).
 
 Installer options follow the script, after a placeholder argument:
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
+bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
 ```
 
 To read the script before running it:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh
+wget -nv https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh
 less get.sh
 sudo sh get.sh
 ```

@@ -2,20 +2,16 @@
 # CertSmith online installer. Downloads a release, verifies its checksum, and runs the
 # installer that is packaged with it.
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
+#   bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
 #
 # Installer options are passed through after the script:
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
+#   bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ --allow-from 192.0.2.0/24
 #
-# A minimal system may have neither curl nor wget. wget works the same way:
-#
-#   bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)"
-#
-# If that returns at once and prints nothing, the script could not be downloaded (a private
-# repository answers 404): run the download part on its own to see the error.
-#
-# and curl can be installed first with: apt-get update && apt-get install -y curl
+# Ubuntu ships wget but usually not curl, so wget is shown here; curl works the same way
+# (replace "wget -nv -O-" with "curl -fsSL"). If the command returns at once and prints
+# nothing, the script could not be downloaded (a private repository answers 404): run the
+# download part on its own to see the error.
 #
 # Environment:
 #   CERTSMITH_VERSION   release to install, for example v0.12.0 (default: the latest release)
@@ -37,7 +33,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # curl, or wget where there is no curl (a minimal container image often has neither)
 if   have curl; then DL=curl
 elif have wget; then DL=wget
-else die "curl or wget is required to download the release. On a minimal system, install one first: apt-get update && apt-get install -y curl"
+else die "curl or wget is required to download the release. On a minimal system, install one first: apt-get update && apt-get install -y wget"
 fi
 have tar  || die "tar is required"
 

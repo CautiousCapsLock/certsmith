@@ -190,7 +190,7 @@ suite() {
   ! logged "curl " && pass "and curl was not needed" || fail "no curl" "$(cat "$LOG")"
   newcase nofetch
   nocurl none
-  case "$OUT" in *"curl or wget is required"*"apt-get install -y curl"*) pass "with neither, the message says what to install" ;; *) fail "neither tool" "$OUT" ;; esac
+  case "$OUT" in *"curl or wget is required"*"apt-get install -y wget"*) pass "with neither, the message says what to install" ;; *) fail "neither tool" "$OUT" ;; esac
   [ "$RC" -ne 0 ] && ! logged INSTALLER && pass "and nothing was installed" || fail "nothing installed" "$OUT"
   newcase wgetprivate
   STUB_NO_RELEASE=1 nocurl

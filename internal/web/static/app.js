@@ -1769,7 +1769,7 @@ function renderSettings() {
             link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, 'Release notes') : null));
           kids.push(h('p', { class: 'meta', style: 'margin:6px 0 4px' },
             'To update, run this on the server that runs CertSmith, as root or with sudo. Settings and data are kept, and the previous version is restored if the new one does not start.'));
-          kids.push(h('pre', { class: 'cmd' }, 'bash -c "$(curl -fsSL https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
+          kids.push(h('pre', { class: 'cmd' }, 'bash -c "$(wget -nv -O- https://raw.githubusercontent.com/' + info.repo + '/main/get.sh)"'));
         } else if (info.latest) {
           kids.push(h('div', { class: 'swline' }, chip('Up to date', 'ok'),
             h('span', { class: 'meta' }, 'The latest published release is ' + plainVersion(info.latest) + '.')));

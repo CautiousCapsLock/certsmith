@@ -17,12 +17,12 @@ build if a switch exists in the code and is not mentioned in this file or the RE
 Downloads a release, verifies its checksum and runs the installer packaged with it.
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ [installer options]
+bash -c "$(wget -nv -O- https://raw.githubusercontent.com/CautiousCapsLock/certsmith/main/get.sh)" _ [installer options]
 ```
 
 The first argument after the script (`_` above) is the shell's `$0` and is ignored. Every
 argument after it is passed unchanged to `install.sh`, so any option in the next section can be
-given. As a pipe: `curl -fsSL URL | sudo bash -s -- [installer options]`.
+given. As a pipe: `wget -nv -O- URL | sudo bash -s -- [installer options]`. `curl -fsSL` can be used in place of `wget -nv -O-`.
 
 | Setting | Default | Purpose |
 |---|---|---|
@@ -32,7 +32,7 @@ given. As a pipe: `curl -fsSL URL | sudo bash -s -- [installer options]`.
 
 Behaviour:
 
-1. Requires Linux, `curl` and `tar`, and an amd64 or arm64 CPU.
+1. Requires Linux, `curl` or `wget`, and `tar`, and an amd64 or arm64 CPU.
 2. Resolves the release, downloads `certsmith-<version>-linux-<arch>.tar.gz` and `SHA256SUMS`.
 3. Stops, before unpacking, if the archive's SHA-256 is missing from or differs from `SHA256SUMS`.
 4. Stops if the archive contains any path outside its own directory.
