@@ -50,6 +50,7 @@ Run the install command again, or use the command shown under **Settings → Sof
 | Area | Capability |
 |---|---|
 | Issuing | ACME with DNS-01 validation. Let's Encrypt, and certificate authorities that use External Account Binding (ZeroSSL, Sectigo, Google Trust Services, or a custom directory). Single-name and wildcard certificates. |
+| Standing record | Experimental: dns-persist-01, for a CA that offers it. One TXT record per domain, published once; issuing and renewing then write nothing to DNS and need no DNS credentials. The record is shown, checked daily and alerted on. See [docs/DNS-PERSIST.md](docs/DNS-PERSIST.md). |
 | Importing | A certificate issued elsewhere (company CA, purchased certificate) is imported from a PKCS#12 file or PEM files, then deployed, monitored and alerted on like any other. It is replaced by uploading a new one and is never renewed by CertSmith. |
 | Renewal | Automatic renewal at a configurable threshold, with expiry and failure alerts by email and webhook. The events sent to each channel are selectable. |
 | Deployment | FortiGate (REST API, including ZTNA server certificates on FortiOS 7.6 and later), FortiManager and FortiAnalyzer (JSON-RPC), Proxmox VE, generic webhook, local files, monitor-only, and CertSmith's own web interface. |
@@ -212,7 +213,7 @@ go run ./cmd/certsmith -data ./data -listen 127.0.0.1:8443
 | `internal/store`, `internal/secret`, `internal/model` | Persistence, encryption of stored secrets and data types. |
 | `internal/update` | The release check. |
 | `deploy/` | systemd unit and the installer packaged with each release. |
-| `docs/` | [Reference](docs/REFERENCE.md), [dependency policy](docs/DEPENDENCIES.md), [release procedure](docs/RELEASING.md), and plans for the [installer and appliance](docs/APPLIANCE.md), [target plugins](docs/PLUGINS.md) and [DNS-PERSIST-01](docs/DNS-PERSIST.md). |
+| `docs/` | [Reference](docs/REFERENCE.md), [dependency policy](docs/DEPENDENCIES.md), [release procedure](docs/RELEASING.md), plans for the [installer and appliance](docs/APPLIANCE.md) and [target plugins](docs/PLUGINS.md), and the [DNS-PERSIST-01](docs/DNS-PERSIST.md) design and test notes. |
 | `scripts/` | Repository checks, installer tests, dependency updates and the third-party notices generator. |
 
 ## Status

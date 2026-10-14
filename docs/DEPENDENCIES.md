@@ -74,6 +74,11 @@ CertSmith moved from lego v4.35.2 to **v5.5.2** (v5.0.0 was published on 11 May 
 **Why.** v5 adds the `dns-persist-01` challenge (see [DNS-PERSIST.md](DNS-PERSIST.md)), context support throughout,
 structured logging, account key rollover, and new DNS providers. v4 receives no further provider additions.
 
+**Experimental interface in use.** CertSmith's dns-persist-01 support calls `SolverManager.SetDNSPersist01`, which lego
+marks experimental and may change in any release. It, and the settings lego reads for it
+(`DNSPERSIST_MANUAL_*`), are confined to `internal/acme/persist.go`; the live tests in
+`internal/acme/pebble_test.go` are what to run after a lego update.
+
 **What changed, and what CertSmith does about it.**
 
 | Change in v5 | Handling |

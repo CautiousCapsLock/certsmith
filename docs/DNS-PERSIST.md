@@ -1,36 +1,37 @@
-# Plan: DNS-PERSIST-01 support
+# DNS-PERSIST-01
 
-Status: **plan for review, nothing here is built.** Researched on 10 October 2026 against CertSmith 0.12.x.
+Status: **built, experimental.** Implemented against Pebble (Let's Encrypt's test CA, v2.10.1) and tested end to
+end there on 14 October 2026. No production CA has been tried yet. The draft is still moving and lego marks its
+interface experimental, so the feature is off unless a provider is switched to it.
+
 Sources are listed at the end. Things that could not be confirmed are marked **Unverified**.
 
 ## 1. What it is
 
-`dns-persist-01` is a new ACME challenge type. Today's `dns-01` makes CertSmith publish a fresh, temporary TXT
-record for every issuance and every renewal, which means the appliance must hold DNS credentials that can write to
-the zone, permanently. `dns-persist-01` replaces that with **one standing TXT record**, created once:
+`dns-persist-01` is an ACME challenge type. `dns-01` makes CertSmith publish a fresh, temporary TXT record for
+every issuance and every renewal, which means the appliance must hold DNS credentials that can write to the zone,
+permanently. `dns-persist-01` replaces that with **one standing TXT record**, created once:
 
 ```
-_validation-persist.example.com.  3600  IN  TXT  "pki.goog; accounturi=https://pki.goog/acct/12345678; policy=wildcard; persistUntil=1798675200"
+_validation-persist.example.com.  3600  IN  TXT  "pebble.letsencrypt.org; accounturi=https://ca.example/acct/1; policy=wildcard; persistUntil=1798675200"
 ```
 
 | Part | Meaning |
 |---|---|
 | Name | `_validation-persist.<domain>` |
-| First value | The CA's *issuer domain name* (the CA publishes it; for Google Trust Services it is `pki.goog`) |
-| `accounturi` | The ACME account that is authorised (required) |
-| `policy=wildcard` | The record also authorises subdomains and wildcard certificates (optional) |
+| First value | The CA's *issuer domain name*. The CA lists the names it accepts in the challenge (`issuer-domain-names`). |
+| `accounturi` | The ACME account that is authorised (required). Also in the challenge. |
+| `policy=wildcard` | The record also authorises wildcard certificates (optional; needed for them) |
 | `persistUntil` | A Unix time after which the CA no longer accepts it (optional) |
 
-Several CAs can have a record at the same name; each reads only the one carrying its own issuer domain name.
-
-**What it would change for CertSmith users.**
+**What it changes for CertSmith users.**
 
 - **DNS credentials leave the appliance.** After the record exists, issuance and renewal need no DNS write access.
-  Today CertSmith's DNS tokens are among the most sensitive things it stores.
 - **It works where DNS-01 cannot.** A zone whose API cannot be reached from the appliance, or that somebody else
   administers, needs the record created once by hand.
-- **A trade-off.** The record is a standing authorisation: whoever holds the ACME account key can obtain certificates
-  for those names until the record is removed or expires. The account key becomes as sensitive as the DNS token was.
+- **A trade-off.** The record is a standing authorisation: whoever holds the ACME account key can obtain
+  certificates for those names until the record is removed or expires. The account key becomes as sensitive as
+  the DNS token was.
 
 ## 2. Where things stand
 
@@ -40,109 +41,134 @@ Several CAs can have a record at the same name; each reads only the one carrying
 |---|---|
 | Document | `draft-ietf-acme-dns-persist`, an IETF Internet-Draft (not an RFC). Revision -01 is dated March 2026; a -02 was listed in September 2026. |
 | Adoption | Adopted by the IETF ACME working group in October 2025. The CA/Browser Forum ballot SC-088v3 passed in October 2025, so the Baseline Requirements allow persistent DNS validation (section 3.2.2.4.22). |
-| Stability | **Still moving.** Syntax and optional parameters have changed between revisions, and there are open issues. Early adopters are told they may need to update records. |
+| Stability | **Still moving.** Syntax and optional parameters have changed between revisions. Records may have to be republished after a CA moves to a newer revision. |
 
 ### Certificate authorities
 
 | CA | Status | Notes |
 |---|---|---|
-| **Google Trust Services** | **Announced 28 September 2026** | Draft revision 01, issuer domain name `pki.goog`, wildcard policy, optional `persistUntil`. The announcement does not say whether it is production, staging, or both. **Unverified.** |
-| **Let's Encrypt** | **Not in production, not scheduled** | Supported in Pebble (its test CA); staging was partial (an `accounturi` was missing from challenges as of June 2026). A staff statement of 25 June 2026 says it will not be deployed until draft issue #64 is resolved. |
-| Sectigo, ZeroSSL, DigiCert, SSL.com and others | **No announcement found** | Nothing from these CAs turned up. Each should be checked against its own ACME documentation before any claim is made. |
+| **Pebble** (test CA) | **Works** | v2.10.0 added the challenge; **v2.10.1 (April 2026) is the first with `accounturi` in it, which lego needs.** Tested here. |
+| **Google Trust Services** | **Announced 28 September 2026** | Draft revision 01, issuer domain name `pki.goog`, wildcard policy, optional `persistUntil`. Whether production, staging or both: **Unverified.** Not tried. |
+| **Let's Encrypt** | **Not in production, not scheduled** | A staff statement of 25 June 2026 says it will not be deployed until draft issue #64 is resolved. |
+| Sectigo, ZeroSSL, DigiCert, SSL.com and others | **No announcement found** | Check each CA's ACME documentation before relying on it. |
+
+CertSmith therefore offers the method on every provider and says so in the dialog: it is for a CA that offers it,
+and with DNS credentials present the provider falls back to DNS-01 when the CA does not.
 
 ### The client library
 
-lego **v5** implements it (`challenge/dnspersist01`, added in v5.0.0 on 11 May 2026 and moved to draft revision 01
-later). A provider supplies one method, `Persist(ctx, fqdn, value)`, plus a timeout. lego checks the record on the
-authoritative and recursive nameservers, and offers `WithIssuerDomainName`, `WithPersistUntil` and propagation
-options. The provider interface is documented by lego as **experimental and may change without notice.**
+lego v5.5.2 implements the challenge (`challenge/dnspersist01`). Its only solver is a *manual* one: it logs the
+record and waits. There is no way to give it a DNS provider (the solver map is private, and lego's DNS providers
+write only the `_acme-challenge` name with a digest value), so **CertSmith cannot publish the record for you.**
+It shows it, and verifies it.
 
-CertSmith now uses lego v5, so the library prerequisite is met (see [DEPENDENCIES.md](DEPENDENCIES.md#lego-v5)).
+## 3. What was built
 
-## 3. Recommendation
+### The model
 
-**Do not build user-facing support yet, but prepare for it.** The only CA that has shipped it is Google, the draft can
-still change under us, and the library interface is experimental. Building the full feature now would risk a
-rewrite. What is worth doing now costs little and is useful regardless:
-
-1. ~~**Migrate to lego v5.**~~ Done; the live checks listed in DEPENDENCIES.md remain.
-2. **Run a spike against Google Trust Services** with a throwaway domain, to confirm the real behaviour (about 1 day).
-   CertSmith already supports Google Trust Services through External Account Binding.
-3. **Decide on the feature when two things are true:** a second CA supports it in production (Let's Encrypt being
-   the one that matters), and the draft has had a revision with no syntax change.
-
-## 4. Design
-
-### 4.1 The model
-
-Validation is a property of the **certificate provider** (the CA account), because the authorisation is tied to the
-ACME account:
+Validation is a property of the **certificate provider**, because the authorisation belongs to the ACME account:
 
 | Field | Values |
 |---|---|
 | `validation` | `dns-01` (default) or `dns-persist-01` |
-| `persist_until` | none, or a number of months (default proposal: 12) |
-| `wildcard_policy` | derived: on when any name on a certificate using this provider is a wildcard, or the domain's zone is shared |
+| `persist_until` | none, or an instant (the dialog takes a date and means the end of that day, UTC) |
 
-A CA preset gains a `supports_persist` flag. It is set only after the behaviour has been observed against that CA.
-For a custom directory the option is offered with a warning, because support appears per authorisation at order time
-and cannot be read from the directory.
+A provider with `dns-persist-01` may have no DNS credentials, at any CA, including Let's Encrypt. With credentials
+they are the fallback. A wildcard policy is not a setting: the record needs it exactly when the certificate has a
+wildcard name, so it is derived from the names.
 
-### 4.2 The flow
+### The flow
 
-1. **Choose.** In the provider dialog: *Domain validation* with the two methods, each explained in a sentence, and
-   the second offered only where the CA supports it.
-2. **Show the record.** Once the account exists (the existing "Check CA account" button registers it), CertSmith
-   shows, per domain, the exact record: name, TTL, and the value built from the account URI and the CA's issuer
-   domain name. A copy button for each. If the provider also has DNS credentials, a **Publish record** button creates
-   it through the existing DNS provider, and nothing is removed afterwards.
-3. **Verify.** A **Check record** button queries the authoritative nameservers and reports what it found.
-4. **Issue and renew** with no DNS writes. If the CA does not offer `dns-persist-01` for an authorisation and the
-   provider has DNS credentials, fall back to `dns-01` and say so in the log; without credentials, fail with a
-   message that names the missing record.
-5. **Watch it.** The record is checked daily. Two new alerts: the record is missing or no longer matches the account,
-   and `persistUntil` is within 30 days. Without them, a lapsed record would surface as a failed renewal.
+1. **Choose** the method in the provider dialog. **Check CA account** creates the account (the record names it).
+2. **Check record** on the certificate. CertSmith creates an order at the CA only to read the challenges, then
+   deactivates its authorisations, and shows for each name the record name, the value (from lego's own helper),
+   and what DNS holds now: *in place*, *not published*, *does not match* (with the reason), or a problem (the CA
+   offered no `dns-persist-01`, with the types it did offer).
+3. **Publish** the record at your DNS provider, by hand, once. Check again.
+4. **Issue and renew.** CertSmith writes nothing to DNS. If the record is not visible to the resolvers it stops
+   *before* asking the CA, because a failed validation counts against the account's rate limits, and the error names
+   the record. If the provider has DNS credentials it falls back to DNS-01 instead and says so in the log and in the
+   events.
+5. **Watch.** Once a day each certificate on such a provider is checked. Two alerts, routable like the others:
+   *a dns-persist-01 record is missing or no longer matches* (urgent when the certificate has 14 days or less),
+   and *an authorisation is close to its end date* (30 days; urgent at 7, and once it has passed). A check that
+   could not reach the CA is not an alert: only a record that was looked at and is not there is.
 
-### 4.3 Security properties to keep
+### Behaviour worth knowing (found in the Pebble run)
 
-- The ACME account key stays sealed like every other secret and is included in backups; document that it is now an
-  authorisation for the persisted domains.
-- Rotating the account key changes `accounturi`, so every record must be re-published. The dialog must say so before
-  it lets anyone do it.
-- A CAA record with `accounturi` limits issuance to the same account and is complementary; mention it in the help.
-- Removing the record, or letting `persistUntil` pass, is the revocation mechanism for the authorisation.
+- **`persistUntil` must match exactly.** lego accepts a record only when its `persistUntil` is identical to the one
+  it is configured with, including its absence. The provider's date is therefore the single source of truth, and
+  changing it changes the record. The dialog says so, and the check says *which* part differs.
+- **A wildcard record covers the bare name too.** `*.example.com` and `example.com` share one record that carries
+  `policy=wildcard`; the check shows it once.
+- **The account URL is part of the record.** At Pebble it contains the host the client used (`localhost:14000`), so
+  the directory URL must stay the same. Replacing the account (a different email or EAB key) changes it.
+- **A record for another account is refused** by the CA with `accounturi mismatch`, and reported here as *does not
+  match* with the values seen.
+- **Several issuer names.** lego uses the one that already has a matching record, otherwise the first in
+  alphabetical order; the check does the same.
+- **Where the zone's nameservers cannot be asked.** In *DNS check: wait* mode (or on a network that intercepts DNS)
+  the resolvers are asked once after the wait, and that settles it. Without it, lego also requires the zone's own
+  nameservers to serve the record.
 
-### 4.4 What is not in scope
+### Security properties
 
-HTTP-01 and TLS-ALPN-01, and the manual DNS provider flow, are not part of this plan.
+- The ACME account key is sealed like every other secret and is included in backups. It is now an authorisation
+  for the persisted names; the help says so.
+- Removing the record, or letting `persistUntil` pass, ends the authorisation.
+- A CAA record with `accounturi` limits issuance to the same account and is complementary.
 
-## 5. Phases
+## 4. Not done
 
-| Phase | Work | Exit criteria | Effort |
-|---|---|---|---|
-| 0 | Watch: Let's Encrypt production status, the draft, lego releases | A decision gate is met (section 3) | none |
-| 1 | lego v4 to v5 ([DEPENDENCIES.md](DEPENDENCIES.md#lego-v5)) | **Done.** Tests pass; live DNS-01 issuance (Let's Encrypt staging, ZeroSSL) still to confirm | done |
-| 2 | Spike: issue from Google Trust Services with `dns-persist-01` | A certificate issued with no DNS write at issuance; findings written down | 1 day |
-| 3 | Model, engine and provider dialog; record display, publish and verify | Issue and renew with no DNS credentials; mock-CA tests; one live test | 2 to 3 days |
-| 4 | Monitoring, the two alerts, documentation, notices | Alerts tested; README and Readme updated | 1 to 2 days |
-| 5 | Let's Encrypt, when it ships to production | Live test against production | 0.5 day |
-
-## 6. Risks
-
-| Risk | Reduction |
+| Item | Why |
 |---|---|
-| The draft changes and records stop validating | Track the revision lego implements; build the record from lego's own helpers, not by hand; keep the feature off by default; tell users which draft revision is supported |
-| lego's provider interface is experimental | Isolate it behind one small adapter in `internal/acme`; pin lego to a tested version |
-| Users treat a standing authorisation lightly | Say plainly, in the dialog, what the record allows and how to end it; default `persistUntil` to a bound |
-| Only one CA supports it | Offer it only where verified; DNS-01 stays the default and the fallback |
-| Testing needs a CA that supports it | Pebble supports it locally; Google Trust Services needs an EAB account |
+| Publishing the record through a DNS provider | lego's providers cannot write a `_validation-persist` name; it needs per-provider support upstream or in CertSmith's plug-ins. |
+| A live run against Google Trust Services | Needs an account with EAB credentials. The only CA exercised is Pebble. |
+| Let's Encrypt production | Not available (section 2). |
+| Per-CA "supports dns-persist-01" flag in the presets | Set it only after a CA has been observed to offer the challenge. |
+| TTL advice, CAA helper | Documentation only, if wanted. |
 
-## 7. Questions for you
+## 5. Testing it
 
-1. **Is "prepare, don't build yet" the right call?** The alternative is to build against Google Trust Services now and
-   accept some rework if the draft changes.
-2. **Default `persistUntil`.** None (simplest, longest exposure), or 12 months with an expiry alert (my suggestion).
-3. **Do you have a Google Trust Services account** (it needs EAB credentials) for the phase 2 spike?
+The unit tests use an in-process mock CA and a DNS server (`internal/acme/persist_test.go`) and run everywhere.
+`internal/acme/pebble_test.go` runs the same flows against a real Pebble and is skipped unless
+`CERTSMITH_PEBBLE` is set.
+
+```sh
+# Pebble and its DNS server (Go 1.24 or later; add GOOS/GOARCH to build for another machine)
+go install github.com/letsencrypt/pebble/v2/cmd/pebble@v2.10.1
+go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@v2.10.1
+```
+
+Pebble needs External Account Binding so that it behaves like the CAs this is meant for. Use its
+`test/config/pebble-config-external-account-bindings.json` (the MAC key of `kid-1` is in the test), the
+`test/certs` directory next to it, and start the two programs:
+
+```sh
+pebble-challtestsrv -dnsserver 127.0.0.1:8053 -management 127.0.0.1:8055 -http01 "" -https01 "" -tlsalpn01 "" -doh ""
+PEBBLE_VA_NOSLEEP=1 pebble -config pebble-config.json -dnsserver 127.0.0.1:8053
+```
+
+The tests, with Pebble's own CA certificate trusted by lego only:
+
+```sh
+CERTSMITH_PEBBLE=1 LEGO_CA_CERTIFICATES=test/certs/pebble.minica.pem \
+  go test ./internal/acme -run Pebble -v
+```
+
+To try it in the page, run CertSmith with the same `LEGO_CA_CERTIFICATES` (and `LEGO_CA_SYSTEM_CERT_POOL=true`, so
+real CAs stay trusted), set under Settings the resolver `127.0.0.1:8053` and *DNS check: wait*, and add a provider
+for the directory `https://localhost:14000/dir` with the key `kid-1` and its MAC key. The record the page shows is
+published into Pebble's DNS with:
+
+```sh
+wget -qO- --header='Content-Type: application/json' \
+  --post-data='{"host":"_validation-persist.app.persist.test.","value":"<the value shown>"}' \
+  http://127.0.0.1:8055/set-txt
+```
+
+Pebble is a test CA whose private key is public. Bind it to 127.0.0.1, and never trust its CA certificate
+system-wide.
 
 ## Sources
 
@@ -150,4 +176,5 @@ HTTP-01 and TLS-ALPN-01, and the manual DNS provider flow, are not part of this 
 - Let's Encrypt community, [Dns-persist-01 deployment status and timeline](https://community.letsencrypt.org/t/dns-persist-01-deployment-status-and-timeline/246468)
 - Google Trust Services, [September 2026: supports ACME DNS-PERSIST-01](https://developers.google.com/public-key-infrastructure/updates/september2026-dns-persist-01)
 - IETF, [draft-ietf-acme-dns-persist-01](https://www.ietf.org/archive/id/draft-ietf-acme-dns-persist-01.html)
-- lego v5.5.2 source and changelog: `challenge/dnspersist01`, `challenge/provider.go`
+- Pebble, [v2.10.0](https://github.com/letsencrypt/pebble/releases/tag/v2.10.0) (challenge, PR 536) and [v2.10.1](https://github.com/letsencrypt/pebble/releases/tag/v2.10.1) (`accounturi`, PR 544)
+- lego v5.5.2 source: `challenge/dnspersist01`, `challenge/resolver/solver_manager.go`, `internal/dnspersist`
