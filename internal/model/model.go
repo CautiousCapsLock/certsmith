@@ -105,6 +105,52 @@ type DNSProvider struct {
 	EABKid    string `json:"eab_kid,omitempty"`   // key identifier from the CA
 	EABHMAC   string `json:"eab_hmac,omitempty"`  // MAC key from the CA, base64url; sealed
 	Email     string `json:"email,omitempty"`     // account email at that CA; empty uses the one in Settings
+
+	// Validation is how this CA account proves control of a name: "" or ValidationDNS01 writes a
+	// TXT record on every issuance; ValidationPersist (dns-persist-01) relies on one standing record,
+	// published once, that names the ACME account. PersistUntil, when set, ends that authorisation on
+	// a date and is written into the record, so it is the same for every name on the provider.
+	Validation   string    `json:"validation,omitempty"`
+	PersistUntil time.Time `json:"persist_until,omitzero"`
+}
+
+// Validation methods of a certificate provider.
+const (
+	ValidationDNS01   = "dns-01"
+	ValidationPersist = "dns-persist-01"
+)
+
+// UsesPersist reports whether names are validated with the standing dns-persist-01 record.
+func (p DNSProvider) UsesPersist() bool { return p.Validation == ValidationPersist }
+
+// Statuses of a PersistRecord.
+const (
+	PersistFound    = "found"    // a matching record is published
+	PersistMissing  = "missing"  // nothing is published at the name
+	PersistMismatch = "mismatch" // something is published, but not for this account, CA or end date
+	PersistError    = "error"    // the CA offers no dns-persist-01 here, or DNS could not be asked
+)
+
+// PersistRecord is the standing record one name needs, and whether it is in DNS.
+type PersistRecord struct {
+	Domain   string   `json:"domain"`            // the name on the certificate, without a leading "*."
+	Name     string   `json:"name"`              // where the record goes: _validation-persist.<domain>
+	Value    string   `json:"value"`             // what it holds
+	Issuer   string   `json:"issuer"`            // the CA's issuer-domain-name inside the value
+	Account  string   `json:"account"`           // the ACME account URL the value names
+	Wildcard bool     `json:"wildcard"`          // the value carries policy=wildcard
+	Status   string   `json:"status"`            // one of the Persist* statuses
+	Seen     []string `json:"seen,omitempty"`    // TXT values found at Name
+	Detail   string   `json:"detail,omitempty"`  // why Status is what it is
+	Until    int64    `json:"until,omitempty"`   // persistUntil as a Unix time, when the record has one
+	Offered  []string `json:"offered,omitempty"` // challenge types the CA offered, when it offered no dns-persist-01
+}
+
+// PersistState is what the last look at a certificate's standing records found.
+type PersistState struct {
+	CheckedAt time.Time       `json:"checked_at"`
+	Error     string          `json:"error,omitempty"` // the CA or DNS could not be asked
+	Records   []PersistRecord `json:"records,omitempty"`
 }
 
 // IsEAB reports whether the provider is a CA that needs External Account Binding.
@@ -130,6 +176,10 @@ type Certificate struct {
 	// PropagationSeconds caps how long to wait for the DNS-01 record to become
 	// visible; 0 uses the provider's default.
 	PropagationSeconds int `json:"propagation_seconds"`
+
+	// Persist is the result of the last check of the dns-persist-01 records, for a certificate whose
+	// provider validates that way. Nothing else writes it, and it is dropped when the provider changes.
+	Persist *PersistState `json:"persist,omitempty"`
 
 	// state
 	Serial        string    `json:"serial"`

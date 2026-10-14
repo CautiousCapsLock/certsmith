@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,14 @@ type mockCA struct {
 	caCert       *x509.Certificate
 	caKey        *ecdsa.PrivateKey
 	chainPEM     []byte
+
+	// dns-persist-01 (see persist_test.go): when persist is set, authorisations offer that challenge
+	// (and dns-01) and are validated against the records txt returns, as a CA reads DNS.
+	persist     bool
+	issuerName  string
+	txt         func(name string) []string
+	authzStatus map[int]string // by authorisation number: "valid" or "invalid" once answered
+	answered    []string       // challenge types the client answered, in order
 }
 
 type mockAccount struct {
@@ -171,6 +180,8 @@ func (m *mockCA) serve(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(m.orderJSON(map[bool]string{true: "valid", false: "pending"}[m.issued]))
+	case "/chall/1-persist", "/chall/2-persist", "/chall/3-persist", "/chall/1-dns", "/chall/2-dns", "/chall/3-dns":
+		m.answerChallenge(w, r)
 	case "/cert/1":
 		w.Header().Set("Content-Type", "application/pem-certificate-chain")
 		_, _ = w.Write(m.chainPEM)
@@ -184,7 +195,18 @@ func (m *mockCA) serve(w http.ResponseWriter, r *http.Request) {
 				value, wildcard = value[2:], true
 			}
 			a := map[string]any{"status": "valid", "identifier": map[string]string{"type": "dns", "value": value}, "wildcard": wildcard}
-			if !m.prevalidated {
+			if m.persist {
+				m.challenged = true
+				a["status"] = "pending"
+				if st := m.authzStatus[n]; st != "" {
+					a["status"] = st
+				}
+				a["challenges"] = []map[string]any{
+					{"type": "dns-persist-01", "url": m.srv.URL + "/chall/" + strconvI(n) + "-persist", "status": "pending",
+						"accounturi": m.srv.URL + "/acct/1", "issuer-domain-names": []string{m.issuerName}},
+					{"type": "dns-01", "url": m.srv.URL + "/chall/" + strconvI(n) + "-dns", "status": "pending", "token": "token-" + strconvI(n)},
+				}
+			} else if !m.prevalidated {
 				m.challenged = true
 				a["status"] = "pending"
 				a["challenges"] = []map[string]any{{"type": "dns-01", "url": m.srv.URL + "/chall/" + strconvI(n), "status": "pending", "token": "token-" + strconvI(n)}}
@@ -197,6 +219,72 @@ func (m *mockCA) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func strconvI(n int) string { return string(rune('0' + n)) }
+
+// answerChallenge is the CA reading DNS when the client says it is ready.
+func (m *mockCA) answerChallenge(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rest := strings.TrimPrefix(r.URL.Path, "/chall/")
+	n := int(rest[0] - '0')
+	typ := "dns-01"
+	if strings.HasSuffix(rest, "-persist") {
+		typ = "dns-persist-01"
+	}
+	m.answered = append(m.answered, typ)
+	value, wildcard := m.idents[n-1], false
+	if strings.HasPrefix(value, "*.") {
+		value, wildcard = value[2:], true
+	}
+	ok := false
+	switch typ {
+	case "dns-persist-01":
+		for _, v := range m.txt("_validation-persist." + value) {
+			ok = ok || m.persistRecordOK(v, wildcard)
+		}
+	default: // any answer at all counts: the mock does not compute key authorisations
+		ok = len(m.txt("_acme-challenge."+value)) > 0
+	}
+	status := "valid"
+	body := map[string]any{"type": typ, "url": m.srv.URL + r.URL.Path}
+	if !ok {
+		status = "invalid"
+		body["error"] = map[string]any{"type": "urn:ietf:params:acme:error:unauthorized", "detail": "No valid TXT record found for " + typ}
+	}
+	body["status"] = status
+	if m.authzStatus == nil {
+		m.authzStatus = map[int]string{}
+	}
+	m.authzStatus[n] = status
+	w.Header().Set("Link", "<"+m.srv.URL+"/authz/"+strconvI(n)+">;rel=\"up\"")
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// persistRecordOK is the CA's own rule for a dns-persist-01 record: its issuer, this account, the
+// wildcard policy for a wildcard, and an end date that has not passed.
+func (m *mockCA) persistRecordOK(v string, wildcard bool) bool {
+	parts := strings.Split(v, ";")
+	if strings.TrimSpace(parts[0]) != m.issuerName {
+		return false
+	}
+	params := map[string]string{}
+	for _, p := range parts[1:] {
+		k, val, _ := strings.Cut(strings.TrimSpace(p), "=")
+		params[strings.ToLower(k)] = val
+	}
+	if params["accounturi"] != m.srv.URL+"/acct/1" {
+		return false
+	}
+	if wildcard && !strings.EqualFold(params["policy"], "wildcard") {
+		return false
+	}
+	if u := params["persistuntil"]; u != "" {
+		ts, err := strconv.ParseInt(u, 10, 64)
+		if err != nil || time.Now().Unix() > ts {
+			return false
+		}
+	}
+	return true
+}
 
 func (m *mockCA) orderJSON(status string) map[string]any {
 	o := map[string]any{"status": status, "finalize": m.srv.URL + "/finalize/1"}

@@ -53,6 +53,15 @@ type Request struct {
 	Settings model.Settings
 	Solver   challenge.Provider // DNS-01 solver; a certificate cannot be issued without one (except by the built-in test CA)
 
+	// Persist, when set, validates names with the standing dns-persist-01 record instead of a DNS-01
+	// record written on each issuance. Solver is then only the fallback, for when the record is not
+	// in DNS (NoChallenge, or nil, means there is none).
+	Persist *Persist
+	// PropagationWait bounds the wait for a published record to be visible everywhere (0: two minutes).
+	PropagationWait time.Duration
+	// OnFallback is told why dns-persist-01 was given up for DNS-01.
+	OnFallback func(reason error)
+
 	// A provider for another CA overrides the Let's Encrypt settings: Directory replaces
 	// Settings.ACMEDirectory, Email replaces Settings.ACMEEmail, and EAB, when set, registers the
 	// account with External Account Binding.
@@ -109,7 +118,7 @@ func (i *Issuer) Issue(ctx context.Context, r Request) (*plugin.Bundle, error) {
 	if r.directory() == model.DirSelfSigned {
 		return i.issueSelfSigned(r)
 	}
-	if r.Solver == nil {
+	if r.Solver == nil && r.Persist == nil {
 		return nil, errors.New("no DNS provider chosen: CertSmith validates names with DNS-01, so a certificate needs DNS credentials")
 	}
 	return i.issueACME(ctx, r)
@@ -424,13 +433,36 @@ func (i *Issuer) CheckAccount(ctx context.Context, r Request) (string, error) {
 }
 
 func (i *Issuer) issueACME(ctx context.Context, r Request) (*plugin.Bundle, error) {
+	if r.Persist != nil {
+		b, err := i.obtainPersist(ctx, r)
+		if err == nil {
+			return b, nil
+		}
+		if r.Solver == nil || ctx.Err() != nil || errors.Is(err, errCancelled) {
+			return nil, err
+		}
+		if _, none := r.Solver.(NoChallenge); none {
+			return nil, err
+		}
+		// The provider also has DNS credentials, so a record that is not there is not the end of it
+		if r.Log != nil {
+			fmt.Fprintf(r.Log, "%s [CERTSMITH] dns-persist-01 did not work (%v): falling back to DNS-01 with this provider's DNS credentials\n",
+				time.Now().Format("2006/01/02 15:04:05"), err)
+		}
+		if r.OnFallback != nil {
+			r.OnFallback(err)
+		}
+	}
+	return i.obtainDNS01(ctx, r)
+}
+
+// obtainDNS01 validates names with DNS-01: it works for plain host names and wildcards alike, and
+// needs nothing from this server but outbound access. CertSmith is not a web server.
+func (i *Issuer) obtainDNS01(ctx context.Context, r Request) (*plugin.Bundle, error) {
 	client, user, accDir, err := i.setup(ctx, r)
 	if err != nil {
 		return nil, err
 	}
-
-	// Names are validated with DNS-01 only: it works for plain host names and wildcards alike, and
-	// needs nothing from this server but outbound access. CertSmith is not a web server.
 	opts := []dns01.ChallengeOption{waitHook(ctx, r.Log, r.SettleFor)}
 	// lego reads the resolvers to check propagation through from its default DNS client. Issuances run
 	// one at a time (issueMu), so setting it per run is safe, and an empty list means the system's own.
@@ -443,7 +475,12 @@ func (i *Issuer) issueACME(ctx context.Context, r Request) (*plugin.Bundle, erro
 	if _, err := register(ctx, client, user, accDir, r.EAB); err != nil {
 		return nil, err
 	}
+	return obtain(ctx, client, r)
+}
 
+// obtain asks the CA for the certificate with whichever solver the client was given, and returns it
+// in the form CertSmith stores.
+func obtain(ctx context.Context, client *lego.Client, r Request) (*plugin.Bundle, error) {
 	res, err := client.Certificate.Obtain(ctx, certificate.ObtainRequest{
 		Domains: r.Domains, KeyType: keyType(r.KeyType), Bundle: true,
 		// lego v5 asks for a certificate without a common name unless told otherwise; v4 always
