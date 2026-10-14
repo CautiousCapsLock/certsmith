@@ -262,6 +262,12 @@ details.adv > summary { cursor: pointer; color: var(--muted); padding: 8px 0; fo
 .fgrid-conn { grid-template-columns: 1fr 110px; align-items: start; }
 .autohint { color: var(--ok); }
 
+/* the standing dns-persist-01 record under a certificate */
+.persistrow { padding: 10px 16px 12px; border-top: 1px solid var(--line); }
+.persistrow > .meta { margin-top: 4px; }
+.precord { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.precord .cmdwrap { margin: 4px 0 8px; }
+
 /* verbose ACME log, tucked away under each certificate */
 .logrow { padding: 0 16px 10px; }
 details.howto { margin-top: 6px; }

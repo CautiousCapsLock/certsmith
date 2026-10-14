@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CautiousCapsLock/certsmith/internal/model"
 )
@@ -261,5 +262,87 @@ func TestCheckingAnAccountDoesNotAskForDNSCredentials(t *testing.T) {
 		noDNS(map[string]any{"ca": "zerossl", "directory": "https://127.0.0.1:1/directory"}), false, nil)
 	if code != 400 || strings.Contains(body, "DNS credentials") {
 		t.Fatalf("ZeroSSL account check without DNS credentials: %d %s", code, body)
+	}
+}
+
+func TestAProviderCanValidateWithAStandingRecordAndThenNeedsNoDNSCredentials(t *testing.T) {
+	ts, srv := newTestServer(t)
+	c := setupAndLogin(t, ts)
+	until := time.Now().Add(120 * 24 * time.Hour).UTC().Truncate(time.Second)
+	for name, body := range map[string]map[string]any{
+		// ZeroSSL and Let's Encrypt always challenge, which is why DNS credentials are otherwise required
+		"a CA that always challenges": noDNS(map[string]any{"name": "Z", "ca": "zerossl", "validation": "dns-persist-01"}),
+		"let's encrypt":               noDNS(map[string]any{"name": "L", "authority": "letsencrypt", "validation": "dns-persist-01"}),
+	} {
+		body["persist_until"] = until.Format(time.RFC3339)
+		if code, b, _ := call(t, c, "POST", ts.URL+"/api/dns", body, false, nil); code != 200 {
+			t.Fatalf("%s: %d %s", name, code, b)
+		}
+	}
+	for _, p := range providers(t, srv) {
+		if !p.UsesPersist() || !p.PersistUntil.Equal(until) || p.Kind != "" {
+			t.Fatalf("stored = %+v", p)
+		}
+	}
+	// the page is told what is stored
+	_, state, _ := call(t, c, "GET", ts.URL+"/api/state", nil, false, nil)
+	if !strings.Contains(state, `"validation":"dns-persist-01"`) || !strings.Contains(state, `"persist_until"`) {
+		t.Fatalf("state does not carry the validation method: %s", state)
+	}
+}
+
+func TestTheEndDateOfAStandingRecordIsOnlyKeptForThatMethodAndMustBeInTheFuture(t *testing.T) {
+	ts, srv := newTestServer(t)
+	c := setupAndLogin(t, ts)
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	past := time.Now().Add(-48 * time.Hour).UTC().Format(time.RFC3339)
+	if code, b, _ := call(t, c, "POST", ts.URL+"/api/dns", eabBody(map[string]any{"validation": "dns-persist-01", "persist_until": past}), false, nil); code != 400 || !strings.Contains(b, "past") {
+		t.Fatalf("an end date in the past: %d %s", code, b)
+	}
+	if code, b, _ := call(t, c, "POST", ts.URL+"/api/dns", eabBody(map[string]any{"validation": "dns-01", "persist_until": future}), false, nil); code != 200 {
+		t.Fatalf("%d %s", code, b)
+	}
+	if p := providers(t, srv)[0]; p.UsesPersist() || p.Validation != "" || !p.PersistUntil.IsZero() {
+		t.Fatalf("a DNS-01 provider kept persist settings: %+v", p)
+	}
+	if code, b, _ := call(t, c, "POST", ts.URL+"/api/dns", eabBody(map[string]any{"name": "X", "validation": "http-01"}), false, nil); code != 400 || !strings.Contains(b, "unknown validation") {
+		t.Fatalf("an unknown method: %d %s", code, b)
+	}
+}
+
+func TestChangingAProviderForgetsWhatWasFoundAboutItsRecords(t *testing.T) {
+	ts, srv := newTestServer(t)
+	c := setupAndLogin(t, ts)
+	_, _, _ = call(t, c, "POST", ts.URL+"/api/dns", eabBody(map[string]any{"validation": "dns-persist-01"}), false, nil)
+	id := providers(t, srv)[0].ID
+	_ = srv.St.Update(func(db *model.DB) error {
+		db.Certificates = append(db.Certificates, model.Certificate{ID: "c9", Name: "x", Domains: []string{"x.example"}, DNSID: id,
+			Persist: &model.PersistState{Records: []model.PersistRecord{{Domain: "x.example", Status: model.PersistFound}}}})
+		return nil
+	})
+	until := time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339)
+	if code, b, _ := call(t, c, "PUT", ts.URL+"/api/dns/"+id, eabBody(map[string]any{"validation": "dns-persist-01", "persist_until": until, "eab_hmac": "********"}), false, nil); code != 200 {
+		t.Fatalf("%d %s", code, b)
+	}
+	if got := srv.St.Snapshot().Certificates[0].Persist; got != nil {
+		t.Fatalf("the old result stayed: %+v", got)
+	}
+}
+
+func TestCheckingTheRecordOfACertificateOnADNS01ProviderIsRefused(t *testing.T) {
+	ts, srv := newTestServer(t)
+	c := setupAndLogin(t, ts)
+	_, _, _ = call(t, c, "POST", ts.URL+"/api/dns", eabBody(nil), false, nil)
+	id := providers(t, srv)[0].ID
+	_ = srv.St.Update(func(db *model.DB) error {
+		db.Certificates = append(db.Certificates, model.Certificate{ID: "c9", Name: "x", Domains: []string{"x.example"}, DNSID: id, Enabled: true})
+		return nil
+	})
+	code, b, _ := call(t, c, "POST", ts.URL+"/api/certs/c9/persist", map[string]any{}, false, nil)
+	if code != 400 || !strings.Contains(b, "DNS-01") {
+		t.Fatalf("%d %s", code, b)
+	}
+	if code, _, _ := call(t, c, "POST", ts.URL+"/api/certs/nope/persist", map[string]any{}, false, nil); code != 400 {
+		t.Fatalf("an unknown certificate: %d", code)
 	}
 }

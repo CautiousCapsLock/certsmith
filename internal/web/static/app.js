@@ -630,6 +630,53 @@ function logPanel(c) {
   return h('div', { class: 'logrow' }, d);
 }
 
+// The standing record a dns-persist-01 certificate relies on: what to publish (once), and whether it is
+// there. It is drawn from what the last check stored on the certificate; "Check record" asks the CA what
+// it needs and looks in DNS now.
+function persistPanel(c) {
+  const p = byId(S.dns_providers, c.dns_id);
+  if (!isPersist(p)) return null;
+  const st = c.persist;
+  const recs = (st && st.records) || [];
+  const tone = r => r.status === 'found' ? 'ok' : r.status === 'mismatch' ? 'warn' : 'bad';
+  const btn = h('button', { class: 'btn small', title: 'Asks the CA which record each name needs, then looks for it in DNS. Nothing is issued or changed.' }, 'Check record');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try { await api('POST', '/api/certs/' + c.id + '/persist', {}); } catch (e) { toast(e.message, true); }
+    await refresh();
+  });
+  const rec = r => {
+    const head = h('div', { class: 'row wrap' }, chip(r.status === 'found' ? 'in place' : r.status === 'mismatch' ? 'does not match' : r.status === 'missing' ? 'not published' : 'problem', tone(r)),
+      h('strong', {}, r.domain + (r.wildcard ? ' (and *.' + r.domain + ')' : '')),
+      r.until ? h('span', { class: 'meta' }, 'valid until ' + fmt(new Date(r.until * 1000).toISOString())) : null);
+    if (r.status === 'error' && !r.value) {
+      return h('div', { class: 'precord' }, head, h('div', { class: 'err small' }, r.detail || ''),
+        r.offered && r.offered.length ? h('div', { class: 'meta' }, 'The CA offered: ' + r.offered.join(', ') + (p.kind ? '. DNS-01 will be used.' : '.')) : null);
+    }
+    const blocks = [
+      h('div', { class: 'meta' }, 'TXT record name'), commandBlock(r.name),
+      h('div', { class: 'meta' }, 'TXT record value'), commandBlock(r.value)];
+    if (r.status === 'found') { // nothing to do: keep it out of the way
+      return h('div', { class: 'precord' }, head, h('details', { class: 'howto' }, h('summary', {}, 'Show the record'), blocks));
+    }
+    return h('div', { class: 'precord' }, head,
+      h('div', { class: 'meta' }, 'Add this as a TXT record at your DNS provider, then press Check record.'), blocks,
+      r.detail ? h('div', { class: 'err small' }, r.detail) : null,
+      r.seen && r.seen.length ? h('div', { class: 'meta' }, 'Published there now: ', r.seen.map(v => h('span', { class: 'mono' }, v + ' '))) : null);
+  };
+  const bad = recs.filter(r => r.status !== 'found').length;
+  return h('div', { class: 'persistrow' },
+    h('div', { class: 'row wrap' },
+      h('strong', {}, 'Standing DNS record (dns-persist-01)'),
+      !st ? chip('not checked yet') : st.error && !recs.length ? chip('could not be checked', 'bad') : bad ? chip(bad + ' to publish', 'warn') : chip('in place', 'ok'),
+      h('div', { class: 'grow' }), btn),
+    h('div', { class: 'meta' }, !st
+      ? 'Publish one TXT record per name, once. After that CertSmith issues and renews without writing to DNS. Use Check record to see exactly what to publish.'
+      : 'Last checked ' + stamp(st.checked_at) + '. The record names this CA and the ACME account; remove it to end the authorisation.'),
+    st && st.error ? h('div', { class: 'err small' }, st.error) : null,
+    recs.map(rec));
+}
+
 function issuingTooltip(c) {
   const secs = Math.max(0, Math.round((Date.now() - new Date(c.last_attempt)) / 1000));
   const took = secs >= 60 ? Math.floor(secs / 60) + ' min ' + (secs % 60) + ' s' : secs + ' s';
@@ -704,7 +751,7 @@ function certCard(c) {
         h('div', { class: 'meta' }, c.source === 'import'
           ? `${c.issuer || 'unknown issuer'} · serial ${(c.serial || '').slice(0, 12)}… · ${c.key_type} · imported ${fmt(c.imported_at)}`
           : c.serial
-          ? `${c.issuer || 'unknown issuer'} · serial ${c.serial.slice(0, 12)}… · ${c.key_type} · ${c.dns_id ? (byId(S.dns_providers, c.dns_id) || {}).kind === '' ? authorityLabel(byId(S.dns_providers, c.dns_id)) + ' (' + byId(S.dns_providers, c.dns_id).name + ', names validated at the CA)' : authorityLabel(byId(S.dns_providers, c.dns_id) || {}) + ' via DNS-01 (' + ((byId(S.dns_providers, c.dns_id) || {}).name || '?') + ')' : 'no certificate provider'}`
+          ? `${c.issuer || 'unknown issuer'} · serial ${c.serial.slice(0, 12)}… · ${c.key_type} · ${c.dns_id ? (byId(S.dns_providers, c.dns_id) || {}).kind === '' ? authorityLabel(byId(S.dns_providers, c.dns_id)) + ' (' + byId(S.dns_providers, c.dns_id).name + (isPersist(byId(S.dns_providers, c.dns_id)) ? ', names validated with a standing record)' : ', names validated at the CA)') : authorityLabel(byId(S.dns_providers, c.dns_id) || {}) + (isPersist(byId(S.dns_providers, c.dns_id)) ? ' via dns-persist-01 (' : ' via DNS-01 (') + ((byId(S.dns_providers, c.dns_id) || {}).name || '?') + ')' : 'no certificate provider'}`
           : 'not issued yet'),
         c.last_error ? h('div', { class: 'err' }, 'Last error: ' + c.last_error) : null,
         // folded: say what is hidden, so a problem under a closed certificate is still seen
@@ -726,6 +773,7 @@ function certCard(c) {
               c.serial ? 'Renew now' : 'Issue now'),
         c.serial && !c.issuing ? h('button', { class: 'btn small ghost', title: 'Download the certificate and its private key as a file, for a device CertSmith cannot deploy to', onclick: () => exportForm(c) }, 'Download') : null,
         h('button', { class: 'btn small ghost', onclick: () => c.source === 'import' ? importedEditForm(c) : certForm(c) }, 'Edit'))),
+    folded || c.source === 'import' ? null : persistPanel(c),
     folded || c.source === 'import' ? null : logPanel(c),
     folded ? null : h('div', { class: 'targets' },
       ts.length ? ts.map(t => targetRow(t, c))
@@ -1331,7 +1379,9 @@ const caLabel = p => {
 };
 const authorityLabel = p => isEAB(p) ? caLabel(p) : "Let's Encrypt";
 // a provider at a CA that validates domains in the account has no DNS credentials at all
-const dnsLabel = p => p.kind ? providerLabel(p.kind) : 'None (validated at the CA)';
+const isPersist = p => !!p && p.validation === 'dns-persist-01';
+const dnsLabel = p => isPersist(p) ? 'dns-persist-01' + (p.kind ? ', ' + providerLabel(p.kind) + ' as the fallback' : ', no DNS credentials')
+  : p.kind ? providerLabel(p.kind) : 'None (validated at the CA)';
 // the ACME directory a certificate comes from: its provider's own CA, or the Let's Encrypt one chosen in Settings
 const effectiveDir = c => { const p = byId(S.dns_providers, c.dns_id); return isEAB(p) ? p.directory : S.settings.acme_directory; };
 const dirLabel = d => d === 'production' ? "Let's Encrypt" : d === 'staging' ? "Let's Encrypt (staging)" : d === 'selfsigned' ? 'the built-in test CA' : d;
@@ -1726,12 +1776,29 @@ function providerForm(p, authority) {
   // account ahead of time, where the CA never sets a challenge.
   const pf = pluginForm(sortedDNS(), p, null, { typeLabel: 'DNS provider' });
   const noDnsChk = h('input', { type: 'checkbox' });
-  noDnsChk.checked = !isNew && isEAB(p) && p.kind === '';
-  const noDnsField = h('div', { class: 'field check' }, h('label', {}, noDnsChk, 'This CA validates my domains in my account: no DNS credentials'),
-    h('div', { class: 'help' }, 'Choose this if you validate your domains in the CA account ahead of time. CertSmith then answers no challenges. If the CA does ask for one, the issuance fails and says so.'));
-  const dnsBlock = h('div', {},
-    h('div', { class: 'sect' }, 'DNS credentials'),
-    h('p', { class: 'meta', style: 'margin:0 0 12px' }, 'Used to publish the temporary TXT record that proves you own the names (DNS-01).'), pf.node);
+  noDnsChk.checked = !isNew && p.kind === '';
+  const noDnsText = h('span', {});
+  const noDnsHelp = h('div', { class: 'help' });
+  const noDnsField = h('div', { class: 'field check' }, h('label', {}, noDnsChk, noDnsText), noDnsHelp);
+  const dnsIntro = h('p', { class: 'meta', style: 'margin:0 0 12px' });
+  const dnsHead = h('div', { class: 'sect' }, 'DNS credentials');
+  const dnsBlock = h('div', {}, dnsHead, dnsIntro, pf.node);
+
+  // ---- how names are proved: a temporary record on every issuance (DNS-01), or one standing record
+  // published once (dns-persist-01). The end date is part of the record, so it lives on the provider.
+  const valSel = h('select', {},
+    h('option', { value: 'dns-01' }, 'DNS-01: a temporary record, written and removed on every issuance'),
+    h('option', { value: 'dns-persist-01' }, 'dns-persist-01: one standing record, published once (experimental)'));
+  valSel.value = isPersist(p) ? 'dns-persist-01' : 'dns-01';
+  const untilIn = h('input', { type: 'date', value: p.persist_until ? String(p.persist_until).slice(0, 10) : '' });
+  const untilField = h('div', { class: 'field' }, h('label', {}, 'Authorisation ends (optional)'), untilIn,
+    h('div', { class: 'help' }, 'Written into the record, so the CA stops accepting it after the end of that day (UTC). CertSmith alerts 30 days before. Changing it changes the record: publish the new one first. Empty means it stays valid until you remove the record.'));
+  const persistHelp = h('div', { class: 'help' },
+    'You publish one TXT record per domain, at _validation-persist.<domain>, naming the CA and this ACME account. After that nothing is written to DNS when certificates are issued or renewed, so no DNS credentials are needed. ' +
+    'The ACME account key becomes the authorisation: whoever holds it can get certificates for these names until the record is removed or the end date passes. ' +
+    "Few CAs offer this yet. If this one does not, and DNS credentials are given below, CertSmith falls back to DNS-01.");
+  const valBlock = h('div', {}, h('div', { class: 'sect' }, 'How names are validated'),
+    h('div', { class: 'field' }, h('label', {}, 'Validation method'), valSel, persistHelp), untilField);
   // The name is the person's own: nothing is filled in for them. A hint shows what a good one looks like.
   const imp = isNew ? importPanel(false) : null;
   const paint = () => {
@@ -1739,9 +1806,22 @@ function providerForm(p, authority) {
     const eab = authSel.value === 'eab';
     eabPanel.style.display = eab ? '' : 'none';
     lePanel.style.display = eab || importing ? 'none' : '';
-    const canSkip = eab && !!(presets.find(c => c.id === caSel.value) || {}).prevalidated;
+    const persist = !importing && valSel.value === 'dns-persist-01';
+    valBlock.style.display = importing ? 'none' : '';
+    persistHelp.style.display = persist ? '' : 'none';
+    untilField.style.display = persist ? '' : 'none';
+    const prevalidated = eab && !!(presets.find(c => c.id === caSel.value) || {}).prevalidated;
+    const canSkip = persist || prevalidated;
     noDnsField.style.display = canSkip ? '' : 'none';
     if (!canSkip) noDnsChk.checked = false;
+    noDnsText.textContent = persist ? 'No DNS credentials: names are validated with the standing record only'
+      : 'This CA validates my domains in my account: no DNS credentials';
+    noDnsHelp.textContent = persist
+      ? 'Choose this to renew without any DNS access. If the record is ever missing, issuance stops and says which record to publish. With credentials instead, CertSmith falls back to DNS-01.'
+      : 'Choose this if you validate your domains in the CA account ahead of time. CertSmith then answers no challenges. If the CA does ask for one, the issuance fails and says so.';
+    dnsHead.textContent = persist ? 'DNS credentials (fallback)' : 'DNS credentials';
+    dnsIntro.textContent = persist ? 'Only used if the standing record is missing or the CA does not offer dns-persist-01: they then publish the temporary DNS-01 record.'
+      : 'Used to publish the temporary TXT record that proves you own the names (DNS-01).';
     const noDns = importing || (canSkip && noDnsChk.checked);
     dnsBlock.style.display = noDns ? 'none' : '';
     testBlock.style.display = noDns ? 'none' : '';
@@ -1756,6 +1836,7 @@ function providerForm(p, authority) {
   authSel.addEventListener('change', paint);
   caSel.addEventListener('change', paint);
   noDnsChk.addEventListener('change', paint);
+  valSel.addEventListener('change', paint);
 
   const testDomain = fieldEl({ key: 'td', label: 'Domain to test with', type: 'text', help: 'A domain in the zone these DNS credentials manage, e.g. example.com.' }, '');
   const dnsTest = dnsTestPanel(() => {
@@ -1763,7 +1844,7 @@ function providerForm(p, authority) {
     return { id: isNew ? undefined : p.id, kind: cur.kind, config: cur.config, domain: testDomain.get() };
   });
   const testBlock = h('div', {}, h('div', { class: 'sect' }, 'Test'), testDomain.wrap, dnsTest.node);
-  const body = h('div', {}, name.wrap, authField, eabPanel, lePanel, imp ? imp.node : null, noDnsField, dnsBlock, testBlock);
+  const body = h('div', {}, name.wrap, authField, eabPanel, lePanel, imp ? imp.node : null, valBlock, noDnsField, dnsBlock, testBlock);
   const checkBtn = h('button', { class: 'btn', title: 'Reads the files and shows what they contain, without importing',
     onclick: e => submit(e.target, () => imp.check()) }, 'Check files');
   let closeDialog = () => {}; // set once the dialog exists
@@ -1775,8 +1856,10 @@ function providerForm(p, authority) {
       return;
     }
     const extra = authSel.value === 'eab' ? eabFields() : { authority: 'letsencrypt' };
-    const noDns = authSel.value === 'eab' && noDnsChk.checked && noDnsField.style.display !== 'none';
-    await api(isNew ? 'POST' : 'PUT', isNew ? '/api/dns' : '/api/dns/' + p.id, Object.assign({ name: name.get() }, noDns ? { kind: '', config: {} } : pf.read(), extra));
+    const noDns = noDnsChk.checked && noDnsField.style.display !== 'none';
+    const persist = valSel.value === 'dns-persist-01';
+    const val = persist ? { validation: 'dns-persist-01', persist_until: untilIn.value ? untilIn.value + 'T23:59:59Z' : '0001-01-01T00:00:00Z' } : { validation: 'dns-01' };
+    await api(isNew ? 'POST' : 'PUT', isNew ? '/api/dns' : '/api/dns/' + p.id, Object.assign({ name: name.get() }, noDns ? { kind: '', config: {} } : pf.read(), extra, val));
     closeDialog(); toast('Saved');
   }) }, 'Save');
   modal(isNew ? 'Add certificate provider' : 'Edit certificate provider', body, close => {

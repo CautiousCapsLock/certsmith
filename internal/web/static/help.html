@@ -89,6 +89,19 @@
 <div class="note"><strong>DNS credentials are required</strong> for these CAs, because names are validated with a DNS challenge. The exception is a CA that validates domains in advance within the customer account (for example Sectigo Certificate Manager). For those, select <em>This CA validates my domains in my account: no DNS credentials</em>. If the CA still requests a challenge, issuance stops with a message stating this.</div>
 <p>The CA of an existing provider cannot be changed; add a new provider instead. A provider that a certificate uses cannot be deleted.</p>
 
+<h3 id="persist">Standing record: dns-persist-01 (experimental)</h3>
+<p>With <strong>DNS-01</strong>, CertSmith writes a temporary TXT record every time it issues or renews, so it needs DNS credentials permanently. With <strong>dns-persist-01</strong> you publish <em>one</em> TXT record per domain, once. It names the CA and your ACME account, and the CA accepts it for as long as it stays in place. Issuing and renewing then write nothing to DNS, and the provider needs no DNS credentials at all.</p>
+<ol>
+  <li>In the provider dialog, set <strong>Validation method</strong> to <em>dns-persist-01</em>. Optionally set <strong>Authorisation ends</strong>: the date is written into the record, and CertSmith alerts 30 days before it.</li>
+  <li>Select <strong>Check CA account</strong> so the account exists, then add a certificate that uses the provider.</li>
+  <li>On the certificate, select <strong>Check record</strong>. CertSmith asks the CA what it needs and shows the TXT record name and value for each domain, with a Copy button.</li>
+  <li>Add that record at your DNS provider, then select <strong>Check record</strong> again. It reads <em>in place</em> when the record matches.</li>
+  <li>Issue the certificate. CertSmith looks for the record before it asks the CA and stops with a message naming the record if it is missing.</li>
+</ol>
+<div class="note"><strong>The account key becomes the authorisation.</strong> Whoever holds this CertSmith's ACME account key can obtain certificates for those names until the record is removed or the end date passes, so keep backups of the data directory as carefully as the DNS credentials they replace. Replacing the account (a new email, or another CA key) changes the record: publish it again. A CAA record that names the account (<code>accounturi</code>) adds a second lock.</div>
+<p>CertSmith checks the records once a day and alerts when one is missing or no longer matches (<em>A dns-persist-01 record is missing or no longer matches</em>), and 30 days before the end date. If the provider also has DNS credentials, they are the fallback: should the record be missing, or the CA not offer the challenge, that issuance uses DNS-01 and the log says so.</p>
+<p>Few CAs offer this challenge yet, and it is still an IETF draft. The support in CertSmith is built on the draft as the CA test server Pebble implements it, and is marked experimental. CertSmith cannot publish the record for you: the DNS providers it uses write only the temporary challenge record.</p>
+
 <h2 id="certificates">Certificates</h2>
 <figure>
   <img src="help/cert-add.jpg" alt="Add certificate dialog">

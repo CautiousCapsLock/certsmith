@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/certs/{id}", s.audited("cert.delete", "cert", s.deleteCert))
 	mux.HandleFunc("POST /api/certs/{id}/renew", s.audited("cert.issue", "cert", s.renewCert))
 	mux.HandleFunc("POST /api/certs/{id}/cancel", s.audited("cert.cancel", "cert", s.cancelCert))
+	mux.HandleFunc("POST /api/certs/{id}/persist", s.audited("cert.persist_check", "cert", s.checkPersist))
 	mux.HandleFunc("GET /api/certs/{id}/log", s.certLog)
 
 	mux.HandleFunc("POST /api/targets", s.audited("target.create", "target", s.saveTarget))
@@ -746,6 +747,11 @@ func (s *Server) saveDNS(w http.ResponseWriter, r *http.Request) {
 		}
 		if idx >= 0 {
 			db.DNSProviders[idx] = in
+			for i := range db.Certificates { // what was found belongs to the provider as it was
+				if db.Certificates[i].DNSID == id {
+					db.Certificates[i].Persist = nil
+				}
+			}
 		} else {
 			in.ID = store.NewID()
 			db.DNSProviders = append(db.DNSProviders, in)
@@ -771,10 +777,13 @@ func (s *Server) normProvider(in *model.DNSProvider, old *model.DNSProvider) err
 // normProviderFor is normProvider with the DNS credentials optional: checking a CA account never
 // touches DNS, so it must not demand credentials that only issuing needs.
 func (s *Server) normProviderFor(in *model.DNSProvider, old *model.DNSProvider, needDNS bool) error {
+	if err := normValidation(in); err != nil {
+		return err
+	}
 	switch in.Authority {
 	case "", model.AuthorityLE:
 		in.Authority, in.CA, in.Directory, in.EABKid, in.EABHMAC, in.Email = "", "", "", "", "", ""
-		if in.Kind == "" && needDNS {
+		if in.Kind == "" && needDNS && !in.UsesPersist() {
 			return fmt.Errorf("choose a DNS provider: Let's Encrypt validates names with DNS-01")
 		}
 		return nil
@@ -814,10 +823,40 @@ func (s *Server) normProviderFor(in *model.DNSProvider, old *model.DNSProvider, 
 	if in.Email = strings.TrimSpace(in.Email); in.Email != "" && !strings.Contains(in.Email, "@") {
 		return fmt.Errorf("%q is not an email address", in.Email)
 	}
-	if needDNS && in.Kind == "" && !acme.PreValidates(in.CA) {
+	if needDNS && in.Kind == "" && !acme.PreValidates(in.CA) && !in.UsesPersist() {
 		return fmt.Errorf("%s checks every name with a DNS challenge, so this provider needs DNS credentials", acme.CALabel(in.CA))
 	}
 	return nil
+}
+
+// normValidation settles how a provider validates names. The end date only means something to
+// dns-persist-01, where it is written into the record, so it is dropped for DNS-01.
+func normValidation(in *model.DNSProvider) error {
+	switch in.Validation {
+	case "", model.ValidationDNS01:
+		in.Validation, in.PersistUntil = "", time.Time{}
+	case model.ValidationPersist:
+		if !in.PersistUntil.IsZero() {
+			in.PersistUntil = in.PersistUntil.UTC().Truncate(time.Second)
+			if !in.PersistUntil.After(time.Now()) {
+				return fmt.Errorf("the end date of the standing record is already in the past")
+			}
+		}
+	default:
+		return fmt.Errorf("unknown validation method")
+	}
+	return nil
+}
+
+// checkPersist looks up, for a certificate on a dns-persist-01 provider, the record each name needs
+// and whether it is in DNS. It asks the CA, so it is something a person starts, not a page load.
+func (s *Server) checkPersist(w http.ResponseWriter, r *http.Request) {
+	st, err := s.Eng.CheckPersist(r.Context(), r.PathValue("id"))
+	if st == nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, st) // a failed look is reported in the state itself, with whatever was found
 }
 
 // checkAccount proves a provider's CA details work, for saved or not-yet-saved values, without
