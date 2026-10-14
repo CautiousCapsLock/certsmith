@@ -8,6 +8,8 @@ const (
 	CertFailed       = "cert.failed"
 	CertExpiring     = "cert.expiring"
 	CertIssued       = "cert.issued"
+	PersistRecord    = "persist.record"
+	PersistExpiring  = "persist.expiring"
 	DeployFailed     = "deploy.failed"
 	DeployOK         = "deploy.ok"
 	EndpointDown     = "endpoint.down"
@@ -37,6 +39,8 @@ var Types = []Type{
 	{CertFailed, "Certificates", "Issuance or renewal fails", true},
 	{CertExpiring, "Certificates", "A certificate is close to expiry", true},
 	{CertIssued, "Certificates", "A certificate is issued or renewed", false},
+	{PersistRecord, "Certificates", "A dns-persist-01 record is missing or no longer matches", true},
+	{PersistExpiring, "Certificates", "A dns-persist-01 authorisation is close to its end date", true},
 	{DeployFailed, "Devices", "A deployment to a device fails", true},
 	{DeployOK, "Devices", "A certificate is deployed to a device", false},
 	{EndpointDown, "Devices", "A device cannot be reached", true},

@@ -13,6 +13,9 @@ func hintFor(err string) string {
 			"(2) no CNAME delegates _acme-challenge to another zone; " +
 			"(3) old _acme-challenge TXT records left by another ACME tool do not hide the problem: they are harmless, but if they are the only records returned, ours was not published where the world can see it; " +
 			"(4) with a slow provider, raise \"Max DNS propagation wait\" on the certificate."
+	case strings.Contains(l, "dns-persist-01"), strings.Contains(l, "dnspersist01"), strings.Contains(l, "_validation-persist"):
+		return "This provider validates names with a standing dns-persist-01 record. Open the certificate and use \"Check record\": it shows the record to publish at _validation-persist.<your domain>, " +
+			"and what is published now. The record names the CA and this ACME account, so it must be published again if the account, the CA or the provider's end date changes."
 	case strings.Contains(l, "set an acme account email"):
 		return "Open Settings and enter an email address under Certificate authority."
 	case strings.Contains(l, "ratelimited"), strings.Contains(l, "rate limit"):

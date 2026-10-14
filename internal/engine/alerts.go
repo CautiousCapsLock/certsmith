@@ -76,6 +76,7 @@ func desiredAlerts(db *model.DB) map[string]alert {
 			}
 		}
 	}
+	persistAlerts(db, out)
 	return out
 }
 
@@ -93,6 +94,10 @@ func alertType(key string) string {
 		return notify.CertFailed
 	case strings.HasPrefix(key, "cert:") && strings.HasSuffix(key, ":expiry"):
 		return notify.CertExpiring
+	case strings.HasPrefix(key, "cert:") && strings.HasSuffix(key, ":persist"):
+		return notify.PersistRecord
+	case strings.HasPrefix(key, "provider:") && strings.HasSuffix(key, ":persistuntil"):
+		return notify.PersistExpiring
 	case strings.HasPrefix(key, "target:"):
 		return notify.DeployFailed
 	case strings.HasSuffix(key, ":down"):

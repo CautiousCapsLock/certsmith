@@ -315,10 +315,14 @@ func (e *Engine) lock(id string) func() {
 func (e *Engine) Run(ctx context.Context) {
 	t := time.NewTicker(tickEvery)
 	defer t.Stop()
-	var lastProbe time.Time
+	var lastProbe, lastPersist time.Time
 	step := func() {
 		e.Reconcile(ctx)
 		e.probePending(ctx)
+		if time.Since(lastPersist) >= time.Hour { // each certificate is looked at once a day (persistWatchEvery)
+			lastPersist = time.Now()
+			e.WatchPersist(ctx)
+		}
 		var every time.Duration
 		e.St.View(func(db *model.DB) { every = time.Duration(max(db.Settings.ProbeMinutes, 1)) * time.Minute })
 		if time.Since(lastProbe) >= every {
@@ -528,13 +532,23 @@ func (e *Engine) issue(ctx context.Context, id string) error {
 	}
 
 	dir := directoryFor(snap, *c)
-	logLine(lw, "Issuing %q for %s (DNS-01, %s key) from the %q ACME directory", c.Name, strings.Join(c.Domains, ", "), c.KeyType, dir)
+	method := "DNS-01"
+	var dp *model.DNSProvider
+	if c.DNSID != "" {
+		dp = providerOf(snap, *c)
+		if dp != nil && dp.UsesPersist() {
+			method = "dns-persist-01, with DNS-01 as the fallback"
+			if dp.Kind == "" {
+				method = "dns-persist-01"
+			}
+		}
+	}
+	logLine(lw, "Issuing %q for %s (%s, %s key) from the %q ACME directory", c.Name, strings.Join(c.Domains, ", "), method, c.KeyType, dir)
 	req := acme.Request{Name: c.Name, Domains: c.Domains, KeyType: c.KeyType, Settings: snap.Settings, Log: lw}
 	if c.DNSID == "" && dir != model.DirSelfSigned { // the built-in test CA validates nothing
-		return fail(errors.New("this certificate has no certificate provider: CertSmith validates names with DNS-01 only. Edit the certificate and choose a provider"))
+		return fail(errors.New("this certificate has no certificate provider: CertSmith validates names with DNS-01 or dns-persist-01. Edit the certificate and choose a provider"))
 	}
 	if c.DNSID != "" {
-		dp := providerOf(snap, *c)
 		if dp == nil {
 			return fail(fmt.Errorf("the certificate provider no longer exists"))
 		}
@@ -546,14 +560,55 @@ func (e *Engine) issue(ctx context.Context, id string) error {
 			req.Directory, req.Email, req.EAB = dp.Directory, dp.Email, eab
 			logLine(lw, "Certificate authority: %s (account bound with EAB key %s)", dp.Directory, dp.EABKid)
 		}
-		if dp.Kind == "" {
-			// No DNS credentials: only a CA that validates domains in the account can issue this
-			if !dp.IsEAB() {
+		wait := c.PropagationSeconds
+		if wait <= 0 {
+			wait = defaultPropagationSeconds
+		}
+		// How to tell the record is published. Asking the zone's nameservers is the best evidence, but
+		// on a network that intercepts DNS the "nameserver" answering is a cache that can hold an old
+		// answer (even "no such name") for minutes, so there the check is replaced by a fixed wait.
+		settleOrCheck := func(what string) {
+			settle := time.Duration(clampInt(snap.Settings.DNSWaitSeconds, 5, 300, 25)) * time.Second
+			switch snap.Settings.DNSCheck {
+			case "wait":
+				req.SettleFor = settle
+				logLine(lw, "Asking the nameservers is switched off in Settings: waiting %s for %s", settle, what)
+			case "check":
+				logLine(lw, "Will ask the zone's nameservers until they serve the record, for up to %ds", wait)
+			default: // auto
+				if hit, via := interceptCheck(ctx); hit {
+					req.SettleFor = settle
+					logLine(lw, "This network intercepts DNS (a query sent to %s, where no DNS server lives, was answered), so the nameservers cannot be asked reliably: waiting %s for %s instead", via, settle, what)
+				} else {
+					logLine(lw, "Will ask the zone's nameservers until they serve the record, for up to %ds", wait)
+				}
+			}
+		}
+		if dp.UsesPersist() {
+			req.Persist = &acme.Persist{Until: dp.PersistUntil}
+			req.PropagationWait = time.Duration(wait) * time.Second
+			req.OnFallback = func(why error) {
+				e.St.AddEvent("warn", c.Name, "dns-persist-01 could not be used, so DNS-01 was used instead: "+why.Error())
+			}
+			if !dp.PersistUntil.IsZero() {
+				logLine(lw, "The standing record for this provider is valid until %s", dp.PersistUntil.UTC().Format(time.RFC3339))
+			}
+		}
+		switch {
+		case dp.Kind == "":
+			// No DNS credentials: only a CA that validates domains in the account, or a standing
+			// dns-persist-01 record, can issue this
+			if !dp.IsEAB() && !dp.UsesPersist() {
 				return fail(fmt.Errorf("provider %s has no DNS credentials: add them, because Let's Encrypt validates names with DNS-01", dp.Name))
 			}
 			req.Solver = acme.NoChallenge{}
-			logLine(lw, "This provider has no DNS credentials: the CA must already have validated these names in your account. If it asks for a DNS challenge instead, the issuance fails here.")
-		} else {
+			if dp.UsesPersist() {
+				logLine(lw, "This provider has no DNS credentials: the standing dns-persist-01 record must already be in DNS. Nothing is written to DNS.")
+				settleOrCheck("a record that is already published to be visible")
+			} else {
+				logLine(lw, "This provider has no DNS credentials: the CA must already have validated these names in your account. If it asks for a DNS challenge instead, the issuance fails here.")
+			}
+		default:
 			p, ok := plugin.DNS(dp.Kind)
 			if !ok {
 				return fail(fmt.Errorf("unknown DNS provider kind %q", dp.Kind))
@@ -569,29 +624,8 @@ func (e *Engine) issue(ctx context.Context, id string) error {
 			// Providers publish at very different speeds, and the same provider varies from day to day. A
 			// short limit only turns "slow" into "failed", so the default is generous: the wait ends the
 			// moment the record is visible, which costs nothing when DNS is quick.
-			wait := c.PropagationSeconds
-			if wait <= 0 {
-				wait = defaultPropagationSeconds
-			}
 			req.Solver = propagationLimit{Provider: req.Solver, wait: time.Duration(wait) * time.Second}
-			// How to tell the record is published. Asking the zone's nameservers is the best evidence, but
-			// on a network that intercepts DNS the "nameserver" answering is a cache that can hold an old
-			// answer (even "no such name") for minutes, so there the check is replaced by a fixed wait.
-			settle := time.Duration(clampInt(snap.Settings.DNSWaitSeconds, 5, 300, 25)) * time.Second
-			switch snap.Settings.DNSCheck {
-			case "wait":
-				req.SettleFor = settle
-				logLine(lw, "Asking the nameservers is switched off in Settings: waiting %s for the provider to publish the record", settle)
-			case "check":
-				logLine(lw, "Will ask the zone's nameservers until they serve the record, for up to %ds", wait)
-			default: // auto
-				if hit, via := interceptCheck(ctx); hit {
-					req.SettleFor = settle
-					logLine(lw, "This network intercepts DNS (a query sent to %s, where no DNS server lives, was answered), so the nameservers cannot be asked reliably: waiting %s for the provider to publish the record instead", via, settle)
-				} else {
-					logLine(lw, "Will ask the zone's nameservers until they serve the record, for up to %ds", wait)
-				}
-			}
+			settleOrCheck("the provider to publish the record")
 		}
 	}
 
