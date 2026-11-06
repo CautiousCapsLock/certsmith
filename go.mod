@@ -1,6 +1,6 @@
 module github.com/CautiousCapsLock/certsmith
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/go-acme/lego/v5 v5.6.0
