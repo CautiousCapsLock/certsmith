@@ -96,7 +96,7 @@ device type of a certificate issued by v5.
 
 ## Go toolchain
 
-`go.mod` names an exact patch release (`go 1.27.2`). CI and the release workflow read it, so they cannot drift from
+`go.mod` names an exact patch release (`go 1.27.3`). CI and the release workflow read it, so they cannot drift from
 local builds. A Go release that changes behaviour CertSmith depends on is called out in `cmd/certsmith/main.go`
 (`//go:debug x509negativeserial=1`); revisit that directive on each Go minor release.
 
