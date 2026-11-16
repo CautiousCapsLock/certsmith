@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/go-acme/lego/v5 v5.6.0
 	github.com/miekg/dns v1.1.73
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.59.0
 	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 
@@ -192,9 +192,9 @@ require (
 	golang.org/x/exp v0.0.0-20261009195045-ca0d7ba23607 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/api v0.309.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261005182115-fad411399dd8 // indirect
