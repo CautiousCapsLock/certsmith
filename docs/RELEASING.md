@@ -60,7 +60,13 @@ generated from the commits), and is never offered as an update.
 
 ## Mistakes
 
-- **Tagged without the notes file:** the workflow stops before building. Add the file on `dev`, merge, delete the
-  tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`) and tag again.
-- **A bad release is already published:** delete the GitHub release and the tag, fix, and publish the next patch
-  version. Do not reuse a version number: installations compare versions, and archives may already be cached.
+Release tags cannot be deleted or moved: the `release-tags` ruleset protects every `v*` tag. A tag that went wrong
+stays where it is, and the fix is released under the next patch version.
+
+- **Tagged without the notes file:** the workflow stops before building, so nothing is published. Write the notes
+  for the next patch version, merge them, and tag that version.
+- **A release was created by hand on GitHub:** the workflow creates the release itself, so a hand-made one has no
+  archives and, as Latest, breaks the quick install and Update now. Delete it at once
+  (`gh release delete vX.Y.Z --yes`; the tag stays), then release the next patch version as above.
+- **A bad release is already published:** delete the GitHub release, fix, and publish the next patch version.
+  Do not reuse a version number: installations compare versions, and archives may already be cached.
